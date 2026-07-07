@@ -1,4 +1,4 @@
-package mx.einnovacion.swiftsalepos;
+package mx.einnovacion.logicpos.restaurantes;
 
 import android.os.Bundle;
 import com.getcapacitor.BridgeActivity;

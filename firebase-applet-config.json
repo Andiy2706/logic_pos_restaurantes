@@ -1,10 +1,10 @@
 {
-  "projectId": "gen-lang-client-0749443687",
-  "appId": "1:399327721041:web:f8c8bf629b35af1aadaa70",
-  "apiKey": "AIzaSyDibacbwMdq9RBILPD2Opuo_Z3QDLzOCCs",
-  "authDomain": "gen-lang-client-0749443687.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-c55570ec-b91e-4564-addb-ad38305426a9",
-  "storageBucket": "gen-lang-client-0749443687.firebasestorage.app",
-  "messagingSenderId": "399327721041",
+  "projectId": "logic-pos-restaurantes",
+  "appId": "1:363162713248:web:5af08ef8d72d223eab1dc5",
+  "apiKey": "AIzaSyCVzSTDgUjsO_F-8_ypG1B3MLK1eOBdZLk",
+  "authDomain": "logic-pos-restaurantes.firebaseapp.com",
+  "firestoreDatabaseId": "(default)",
+  "storageBucket": "logic-pos-restaurantes.firebasestorage.app",
+  "messagingSenderId": "363162713248",
   "measurementId": ""
 }

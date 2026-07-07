@@ -1,8 +1,8 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'mx.einnovacion.swiftsalepos',
-  appName: 'LOGIC POS',
+  appId: 'mx.einnovacion.logicpos.restaurantes',
+  appName: 'LOGIC POS Restaurantes',
   webDir: 'dist',
   server: {
     androidScheme: 'https',
