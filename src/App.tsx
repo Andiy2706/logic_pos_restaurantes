@@ -154,6 +154,12 @@ const saveFileOnDevice = async (filename: string, base64Data: string, mimeType: 
 };
 
 // Interfaces
+
+// Where a product's ticket line should be routed when sent from a restaurant order:
+// the kitchen printer, the bar printer, or nowhere (not printed on a station ticket).
+// Pre-filled from the product category but always explicit and persisted per product.
+type PrintDestination = 'cocina' | 'barra' | 'ninguno';
+
 interface Product {
   id: string;
   name: string;
@@ -166,6 +172,7 @@ interface Product {
   sku?: string;
   supplierId?: string; // Associated Suppplier
   branchStocks?: { [branchId: string]: number }; // Branch-specific stocks!
+  printDestination?: PrintDestination; // Restaurant mode: which station printer this item goes to
 }
 
 interface Customer {
@@ -207,6 +214,11 @@ interface Sale {
   requiresInvoice?: boolean;
   invoiceStatus?: 'pending' | 'completed';
   employeeName?: string; // Who rang up the sale (owner, encargado, or cajero) — "Atendido por"
+  // Restaurant mode: traceability back to the table/order this sale was closed from.
+  // Additive only — a normal retail sale leaves these undefined.
+  orderId?: string;
+  tableId?: string;
+  waiterName?: string;
 }
 
 interface CashRegister {
@@ -255,7 +267,9 @@ interface Member {
   userId: string;
   name: string;
   email: string;
-  role: 'owner' | 'master_admin' | 'admin' | 'employee';
+  // 'mesero' (waiter) sits at the same privilege level as 'employee' — no elevated
+  // rights — but drives the restaurant-specific floor UI (tables/orders) in Fase 2/4.
+  role: 'owner' | 'master_admin' | 'admin' | 'employee' | 'mesero';
   joinedAt?: string;
   assignedBranchId?: string;
 }
@@ -289,6 +303,12 @@ interface PrintConfig {
   showLogo: boolean;
   showTaxLine: boolean;
   footerText: string;
+  // Restaurant mode (Android-only split network printing, Fase 5). Empty until configured
+  // in the "Impresora" settings subtab; default port is 9100 (raw ESC/POS over TCP).
+  kitchenPrinterIp?: string;
+  kitchenPrinterPort?: number;
+  barPrinterIp?: string;
+  barPrinterPort?: number;
 }
 
 const DEFAULT_PRINT_CONFIG: PrintConfig = {
@@ -297,6 +317,62 @@ const DEFAULT_PRINT_CONFIG: PrintConfig = {
   showTaxLine: true,
   footerText: '¡Gracias por su compra!',
 };
+
+// The company registration document (companies/{companyId}). `businessType` gates all the
+// restaurant-specific UI (Mesas tab, mesero role, printer IPs) — it stays generic/white-label:
+// retail companies omit it or set 'retail', new companies in this repo default to 'restaurante'.
+interface Company {
+  id: string;
+  name: string;
+  ownerId: string;
+  invitationCode: string;
+  createdAt: string;
+  businessType?: 'retail' | 'restaurante';
+}
+
+// --- Restaurant mode: tables & orders (companies/{companyId}/tables, /orders) ---
+// A table on the floor. `status` drives the color/state in the floor grid; `currentOrderId`
+// links to the open order while occupied.
+interface Table {
+  id: string;
+  name: string;
+  branchId: string;
+  capacity?: number;
+  status: 'libre' | 'ocupada' | 'por_cobrar';
+  currentOrderId?: string;
+}
+
+// One line inside an open order. `round` groups items sent together to the kitchen/bar;
+// `sentAt` is set once the round has been fired to the station printers (Fase 5) — an
+// item with `sentAt` is read-only (the kitchen already started on it).
+interface OrderItem {
+  productId: string;
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  destination: PrintDestination;
+  round: number;
+  sentAt?: string;
+}
+
+// The "comanda"/open tab — deliberately separate from `Sale`: a Sale is an immutable,
+// already-completed financial record that feeds reports/PDFs; an Order is a mutable
+// in-progress document (rounds get appended, corrected before sending). On close, a Sale
+// is built from `items` (reusing the atomic stock/cash delta helpers) and the order is
+// marked closed + linked via `saleId` — it is never deleted (needed for "cuentas cerradas"
+// and the audit panel).
+interface Order {
+  id: string;
+  tableId: string;
+  branchId: string;
+  status: 'open' | 'closed';
+  waiterId: string;
+  waiterName: string;
+  openedAt: string;
+  items: OrderItem[];
+  closedAt?: string;
+  saleId?: string;
+}
 
 export const formatMXN = (val: number): string => {
   if (isNaN(val) || val === undefined || val === null) return '$0.00 MXN';
@@ -578,7 +654,7 @@ export default function App() {
 
   // Multi-Company States
   const [activeCompanyId, setActiveCompanyId] = useState<string | null>(null);
-  const [userCompanies, setUserCompanies] = useState<{ [id: string]: { id: string; name: string; role: 'owner' | 'master_admin' | 'admin' | 'employee' } }>({});
+  const [userCompanies, setUserCompanies] = useState<{ [id: string]: { id: string; name: string; role: 'owner' | 'master_admin' | 'admin' | 'employee' | 'mesero' } }>({});
   const [currentUserMember, setCurrentUserMember] = useState<any | null>(null);
   const [folioNumber, setFolioNumber] = useState('');
 
@@ -647,12 +723,15 @@ export default function App() {
 
     try {
       const companyId = 'comp_' + Math.floor(Math.random() * 900000 + 100000);
-      const newCompany = {
+      const newCompany: Company = {
         id: companyId,
         name: companyName,
         ownerId: user.uid,
         invitationCode: 'INV-' + Math.floor(Math.random() * 90000 + 10000),
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        // This repo is the restaurant line — new companies default to 'restaurante'. The
+        // field stays generic so the same codebase can still serve retail companies.
+        businessType: 'restaurante'
       };
 
       // 1. Save company registration document

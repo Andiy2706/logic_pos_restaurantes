@@ -30,7 +30,7 @@ interface Member {
   userId: string;
   name: string;
   email: string;
-  role: 'owner' | 'master_admin' | 'admin' | 'employee';
+  role: 'owner' | 'master_admin' | 'admin' | 'employee' | 'mesero';
   joinedAt?: string;
   assignedBranchId?: string;
   customRoleName?: string;
@@ -71,9 +71,9 @@ interface BluetoothPrinterDevice {
 interface CompanySettingsViewProps {
   companyId: string;
   companyName: string;
-  currentUserRole: 'owner' | 'master_admin' | 'admin' | 'employee';
+  currentUserRole: 'owner' | 'master_admin' | 'admin' | 'employee' | 'mesero';
   currentUserId: string;
-  userAvailableCompanies: { [id: string]: { id: string; name: string; role: 'owner' | 'master_admin' | 'admin' | 'employee' } };
+  userAvailableCompanies: { [id: string]: { id: string; name: string; role: 'owner' | 'master_admin' | 'admin' | 'employee' | 'mesero' } };
   onSwitchCompany: (id: string) => void;
   onLogoutCompany: () => void;
   onCreateCompany?: (name: string) => Promise<void>;
