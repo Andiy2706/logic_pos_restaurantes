@@ -1306,7 +1306,7 @@ export default function CompanySettingsView({
                                 ? 'bg-emerald-50 border-emerald-300 text-emerald-700'
                                 : member.role === 'mesero'
                                 ? 'bg-amber-50 border-amber-300 text-amber-700'
-                                : 'bg-slate-55 border-slate-300 text-slate-700'
+                                : 'bg-slate-50 border-slate-300 text-slate-700'
                             }`}>
                               {member.role === 'master_admin' ? '🧙 Master Admin' : member.role === 'admin' ? '🛡️ Admin' : member.role === 'mesero' ? '🍽️ Mesero' : '💼 Empleado'}
                             </span>
