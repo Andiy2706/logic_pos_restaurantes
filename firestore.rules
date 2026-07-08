@@ -370,15 +370,21 @@ service cloud.firestore {
         allow list, get: if isSignedIn() && isMemberOfCompany(companyId);
         allow create, delete: if isVerifiedUser() && isOwnerOrAdmin(companyId) && isValidId(tableId) &&
           (request.method == 'delete' || (isValidTable(incoming()) && incoming().id == tableId));
-        allow update: if isVerifiedUser() && isMemberOfCompany(companyId) && isValidId(tableId) &&
-          isValidTable(incoming()) && incoming().id == tableId;
+        // Opening/closing a table from the floor only ever touches status/currentOrderId —
+        // that's a basic right of any mesero. Renaming, recapacity, or reassigning branch is
+        // salon management and needs owner/admin (same split as the products stock-only update).
+        allow update: if isVerifiedUser() && isValidId(tableId) &&
+          isValidTable(incoming()) && incoming().id == tableId && (
+            (isMemberOfCompany(companyId) && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'currentOrderId']))
+            || isOwnerOrAdmin(companyId)
+          );
       }
 
       // Orders subcollection inside Company
       match /orders/{orderId} {
         allow list, get: if isSignedIn() && isMemberOfCompany(companyId);
         allow create: if isVerifiedUser() && isMemberOfCompany(companyId) && isValidId(orderId) &&
-          isValidOrder(incoming()) && incoming().id == orderId;
+          isValidOrder(incoming()) && incoming().id == orderId && incoming().status == 'open';
         allow update: if isVerifiedUser() && isMemberOfCompany(companyId) && isValidId(orderId) &&
           isValidOrder(incoming()) && incoming().id == orderId;
         allow delete: if isVerifiedUser() && isOwnerOrAdmin(companyId) && isValidId(orderId);
