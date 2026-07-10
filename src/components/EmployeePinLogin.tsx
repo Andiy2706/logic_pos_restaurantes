@@ -154,14 +154,14 @@ export default function EmployeePinLogin({
         </div>
 
         {/* Numeric Keypad Grid */}
-        <div className="grid grid-cols-3 gap-3.5 max-w-[280px] mx-auto w-full mb-4">
+        <div className="grid grid-cols-3 gap-3.5 max-w-[300px] mx-auto w-full mb-4">
           {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map(num => (
             <button
               key={num}
               type="button"
               disabled={isSubmitting}
               onClick={() => handleKeyPress(num)}
-              className="w-16 h-16 rounded-2xl bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-700/80 active:scale-95 text-slate-800 dark:text-slate-100 font-black text-xl flex items-center justify-center border border-slate-100 dark:border-slate-800 shadow-sm cursor-pointer transition duration-150 select-none hover:shadow-md hover:border-slate-200/80"
+              className="w-20 h-20 rounded-2xl bg-slate-50 dark:bg-slate-800/80 hover:bg-[color-mix(in_srgb,var(--brand-primary,#6366f1)_8%,#f8fafc)] dark:hover:bg-[color-mix(in_srgb,var(--brand-primary,#6366f1)_12%,#1e293b)] hover:text-[var(--brand-primary,#6366f1)] hover:border-[color-mix(in_srgb,var(--brand-primary,#6366f1)_40%,transparent)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary,#6366f1)] focus:ring-offset-2 active:scale-90 active:bg-[color-mix(in_srgb,var(--brand-primary,#6366f1)_18%,#f1f5f9)] dark:active:bg-[color-mix(in_srgb,var(--brand-primary,#6366f1)_18%,#0f172a)] text-slate-800 dark:text-slate-100 font-black text-xl flex items-center justify-center border border-slate-100 dark:border-slate-800 shadow-sm cursor-pointer transition duration-150 select-none hover:shadow-md"
             >
               {num}
             </button>
@@ -172,7 +172,7 @@ export default function EmployeePinLogin({
             type="button"
             disabled={isSubmitting}
             onClick={handleBackspace}
-            className="w-16 h-16 rounded-2xl bg-slate-50 dark:bg-slate-800/80 hover:bg-rose-50 dark:hover:bg-rose-950/20 hover:text-rose-600 hover:border-rose-200 active:scale-95 text-slate-500 font-black flex items-center justify-center border border-slate-100 dark:border-slate-800 shadow-sm cursor-pointer transition duration-150 select-none"
+            className="w-20 h-20 rounded-2xl bg-slate-50 dark:bg-slate-800/80 hover:bg-rose-50 dark:hover:bg-rose-950/30 hover:text-rose-600 hover:border-rose-200 focus:outline-none focus:ring-2 focus:ring-rose-500 focus:ring-offset-2 active:scale-90 active:bg-rose-100 dark:active:bg-rose-900/30 text-slate-500 font-black flex items-center justify-center border border-slate-100 dark:border-slate-800 shadow-sm cursor-pointer transition duration-150 select-none"
             title="Borrar"
           >
             <Delete className="w-5 h-5" />
@@ -183,7 +183,7 @@ export default function EmployeePinLogin({
             type="button"
             disabled={isSubmitting}
             onClick={() => handleKeyPress('0')}
-            className="w-16 h-16 rounded-2xl bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-700/80 active:scale-95 text-slate-800 dark:text-slate-100 font-black text-xl flex items-center justify-center border border-slate-100 dark:border-slate-800 shadow-sm cursor-pointer transition duration-150 select-none hover:shadow-md"
+            className="w-20 h-20 rounded-2xl bg-slate-50 dark:bg-slate-800/80 hover:bg-[color-mix(in_srgb,var(--brand-primary,#6366f1)_8%,#f8fafc)] dark:hover:bg-[color-mix(in_srgb,var(--brand-primary,#6366f1)_12%,#1e293b)] hover:text-[var(--brand-primary,#6366f1)] hover:border-[color-mix(in_srgb,var(--brand-primary,#6366f1)_40%,transparent)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary,#6366f1)] focus:ring-offset-2 active:scale-90 active:bg-[color-mix(in_srgb,var(--brand-primary,#6366f1)_18%,#f1f5f9)] dark:active:bg-[color-mix(in_srgb,var(--brand-primary,#6366f1)_18%,#0f172a)] text-slate-800 dark:text-slate-100 font-black text-xl flex items-center justify-center border border-slate-100 dark:border-slate-800 shadow-sm cursor-pointer transition duration-150 select-none hover:shadow-md"
           >
             0
           </button>
@@ -193,7 +193,7 @@ export default function EmployeePinLogin({
             type="button"
             disabled={pin.length < pinLength || isSubmitting}
             onClick={() => onPinSubmit && onPinSubmit(pin)}
-            className="w-16 h-16 rounded-2xl flex items-center justify-center border shadow-sm active:scale-95 cursor-pointer transition duration-150 select-none disabled:opacity-40 disabled:cursor-not-allowed"
+            className="w-20 h-20 rounded-2xl flex items-center justify-center border shadow-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary,#6366f1)] focus:ring-offset-2 active:scale-90 cursor-pointer transition duration-150 select-none disabled:opacity-40 disabled:cursor-not-allowed"
             style={{
               backgroundColor: pin.length === pinLength ? 'var(--brand-primary, #6366f1)' : 'var(--brand-primary, #6366f1)10',
               borderColor: pin.length === pinLength ? 'var(--brand-primary, #6366f1)' : 'transparent',
