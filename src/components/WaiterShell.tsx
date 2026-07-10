@@ -69,6 +69,7 @@ interface Order {
 interface WaiterShellProps {
   user: any;
   companyName: string;
+  activeCompanyId: string;
   currentUserMember: any;
   products: Product[];
   branches: Branch[];
@@ -90,6 +91,7 @@ const formatMXN = (val: number): string => {
 export default function WaiterShell({
   user,
   companyName,
+  activeCompanyId,
   currentUserMember,
   products,
   branches,
@@ -151,8 +153,6 @@ export default function WaiterShell({
       return matchesSearch && matchesCat;
     });
   }, [products, searchTerm, selectedCategory]);
-
-  const activeCompanyId = currentUserMember?.companyId || localStorage.getItem(`logic_active_company_${user.uid}`);
 
   // Create a new order and set table status to occupied
   const handleOpenTable = async (table: Table) => {

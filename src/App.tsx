@@ -3152,7 +3152,7 @@ export default function App() {
               <ShoppingCart className="w-6 h-6 text-indigo-500" />
             </div>
             <div>
-              <h3 className="font-extrabold text-base text-slate-800">LOGIC POS</h3>
+              <h3 className="font-extrabold text-base text-slate-800">LOGIC POS RESTAURANTES</h3>
               <p className="text-[10px] text-slate-400 mt-0.5">Ingresa con tu número de empleado o cuenta de propietario.</p>
             </div>
           </div>
@@ -3233,6 +3233,7 @@ export default function App() {
       <WaiterShell
         user={user}
         companyName={branding.displayName || userCompanies[activeCompanyId]?.name || 'Mi Comercio'}
+        activeCompanyId={activeCompanyId}
         currentUserMember={currentUserMember}
         products={products}
         branches={branches}
