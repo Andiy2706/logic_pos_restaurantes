@@ -90,6 +90,10 @@ interface CompanySettingsViewProps {
   customers?: any[];
   customCategories?: any[];
   onGoogleSignInForBackup?: () => Promise<string | null>;
+  // `sales` above is now scoped to just the active branch (Firestore read-quota optimization),
+  // so the Drive backup — which must include every branch's sales — fetches a fresh, complete
+  // copy on demand right before building the backup payload instead of relying on that prop.
+  onFetchAllSalesForBackup?: () => Promise<any[]>;
   onRestoreCompanyData?: (backupData: any, onProgress: (msg: string) => void) => Promise<void>;
   branding?: Branding;
   onSaveBranding?: (branding: Branding) => Promise<void>;
@@ -130,6 +134,7 @@ export default function CompanySettingsView({
   customers = [],
   customCategories = [],
   onGoogleSignInForBackup,
+  onFetchAllSalesForBackup,
   onRestoreCompanyData,
   branding = {},
   onSaveBranding,
@@ -519,9 +524,12 @@ export default function CompanySettingsView({
       const accessToken = await onGoogleSignInForBackup();
       if (!accessToken) throw new Error("No se pudo obtener acceso a Google Drive.");
 
+      // `sales` prop is branch-scoped now — fetch every branch's sales fresh for a complete backup.
+      const allSales = onFetchAllSalesForBackup ? await onFetchAllSalesForBackup() : sales;
+
       const backupData = {
         products,
-        sales,
+        sales: allSales,
         suppliers,
         customers,
         customCategories,

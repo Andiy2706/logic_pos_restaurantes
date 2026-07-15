@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, FormEvent } from 'react';
+import React, { useState, useEffect, useMemo, useRef, FormEvent } from 'react';
 import { 
   ShoppingCart,
   Package,
@@ -105,7 +105,9 @@ import {
   updateDoc,
   increment,
   arrayUnion,
-  runTransaction
+  runTransaction,
+  query,
+  where
 } from 'firebase/firestore';
 
 // Custom Tenant Components
@@ -648,6 +650,19 @@ export default function App() {
   const [authCompanyId, setAuthCompanyId] = useState('');
   const [authUsername, setAuthUsername] = useState('');
   const [isSignInLoading, setIsSignInLoading] = useState(false);
+  // Shown inline in the login form instead of alert(): alert() blocks JS execution until
+  // dismissed, and on some Android WebView builds that native dialog doesn't render (or renders
+  // somewhere the user never sees) — leaving the button stuck on "Verificando..." forever with
+  // no visible error, even though the code already knew exactly what went wrong.
+  const [authError, setAuthError] = useState('');
+
+  // Credential-employee bootstrap ("Conectando al sistema..." waiting screen, see the users/{uid}
+  // sync effect below): true once every automatic retry has been exhausted without successfully
+  // rebuilding the profile, so the waiting screen can show a real error + "Reintentar" button
+  // instead of spinning forever. bootstrapRetryTrigger lets that button re-run the whole sync
+  // effect (it's in the effect's dependency array) without needing the user to sign out and back in.
+  const [credentialBootstrapFailed, setCredentialBootstrapFailed] = useState(false);
+  const [bootstrapRetryTrigger, setBootstrapRetryTrigger] = useState(0);
 
   // Shared by the two-field form and the kiosk PIN pad — both resolve to the
   // same virtual-email account (mirrors CompanySettingsView.handleCreateCredentialEmployee).
@@ -671,8 +686,9 @@ export default function App() {
 
   const handleCredentialSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
+    setAuthError('');
     if (!authCompanyId.trim() || !authUsername.trim()) {
-      alert("Por favor completa el Código de Comercio y tu Número de Empleado.");
+      setAuthError("Por favor completa el Código de Comercio y tu Número de Empleado.");
       return;
     }
 
@@ -685,7 +701,7 @@ export default function App() {
       setAuthUsername('');
     } catch (err: any) {
       console.error("Error signing in with employee credentials:", err);
-      alert("Error de inicio de sesión: " + describeSignInError(err));
+      setAuthError(describeSignInError(err));
     } finally {
       setIsSignInLoading(false);
     }
@@ -1096,124 +1112,113 @@ export default function App() {
     const quickRestore = localStorage.getItem(`logic_active_company_${user.uid}`);
     if (quickRestore) setActiveCompanyId(quickRestore);
 
+    const isVirtualEmployee = !!(user.email && user.email.includes('_') && user.email.endsWith('@logicpos.com'));
+    let parsedCompanyId: string | null = null;
+    if (isVirtualEmployee) {
+      const emailLocal = user.email!.split('@')[0];
+      const firstUnderscore = emailLocal.indexOf('_');
+      const secondUnderscore = emailLocal.indexOf('_', firstUnderscore + 1);
+      parsedCompanyId = secondUnderscore !== -1 ? emailLocal.substring(0, secondUnderscore) : null;
+    }
+
+    // Bootstraps (or rebuilds) a credential (virtual-email) employee's users/{uid} doc from
+    // their company member record. Called both when the doc doesn't exist yet (first login) and
+    // when it exists but was left with an empty `companies` map (a stuck/"poisoned" profile from
+    // a permission-denied race — firestore.rules' isMemberOfCompany() gates the member-doc read
+    // on that exact doc's own existence, so reading it right after an Owner creates the account,
+    // before it's visible, throws permission-denied rather than a clean "not found"). That second
+    // case used to be a permanent dead end, since a doc that already exists never re-triggers the
+    // "doesn't exist" branch again, not even after signing out and back in. Retries several times
+    // over ~10s to ride out brief connectivity/propagation hiccups before finally giving up and
+    // letting the waiting screen show a real error + "Reintentar" button instead of spinning forever.
+    const bootstrapCredentialEmployee = async (attempt: number) => {
+      if (!parsedCompanyId) { setCredentialBootstrapFailed(true); return; }
+      if (attempt === 0) setCredentialBootstrapFailed(false);
+      try {
+        const memberSnap = await getDoc(doc(db, 'companies', parsedCompanyId, 'members', user.uid));
+        if (!memberSnap.exists()) throw new Error('member-not-visible-yet');
+        const mData = memberSnap.data();
+
+        let compName = 'Mi Empresa';
+        try {
+          const compSnap = await getDoc(doc(db, 'companies', parsedCompanyId));
+          if (compSnap.exists()) compName = compSnap.data().name || compName;
+        } catch {
+          // Company name lookup failing isn't fatal — fall back to the generic label.
+        }
+
+        await setDoc(doc(db, 'users', user.uid), {
+          uid: user.uid,
+          email: user.email || '',
+          name: mData.name || 'Empleado',
+          createdAt: new Date().toISOString(),
+          companies: {
+            [parsedCompanyId]: {
+              id: parsedCompanyId,
+              name: compName,
+              role: mData.role || 'employee'
+            }
+          },
+          activeCompanyId: parsedCompanyId
+        });
+      } catch (err) {
+        if (attempt < 4) {
+          setTimeout(() => bootstrapCredentialEmployee(attempt + 1), 2500);
+        } else {
+          setCredentialBootstrapFailed(true);
+        }
+      }
+    };
+
     const unsubUser = onSnapshot(doc(db, 'users', user.uid), (snapshot) => {
       if (snapshot.exists()) {
         const data = snapshot.data();
-        if (data.companies) {
-          setUserCompanies(data.companies);
-        } else {
-          setUserCompanies({});
+        const companies = data.companies || {};
+        const keys = Object.keys(companies);
+
+        if (keys.length === 0 && isVirtualEmployee) {
+          // Stuck/poisoned credential-employee profile — self-heal instead of leaving it
+          // stranded (see comment on bootstrapCredentialEmployee above).
+          bootstrapCredentialEmployee(0);
+          return;
         }
+
+        setUserCompanies(companies);
 
         const savedActiveCompanyId = localStorage.getItem(`logic_active_company_${user.uid}`);
         const cloudActiveCompanyId = data.activeCompanyId;
-        const keys = Object.keys(data.companies || {});
 
-        if (cloudActiveCompanyId && data.companies?.[cloudActiveCompanyId]) {
+        if (cloudActiveCompanyId && companies[cloudActiveCompanyId]) {
           setActiveCompanyId(cloudActiveCompanyId);
-        } else if (savedActiveCompanyId && data.companies?.[savedActiveCompanyId]) {
+        } else if (savedActiveCompanyId && companies[savedActiveCompanyId]) {
           setActiveCompanyId(savedActiveCompanyId);
         } else if (keys.length > 0) {
           setActiveCompanyId(keys[0]);
         } else {
           setActiveCompanyId(null);
         }
+      } else if (isVirtualEmployee) {
+        bootstrapCredentialEmployee(0);
       } else {
-        // Initialize user document
-        const isVirtualEmployee = user.email && user.email.includes('_') && user.email.endsWith('@logicpos.com');
-        if (isVirtualEmployee) {
-          const emailLocal = user.email!.split('@')[0];
-          const firstUnderscore = emailLocal.indexOf('_');
-          const secondUnderscore = emailLocal.indexOf('_', firstUnderscore + 1);
-          if (secondUnderscore !== -1) {
-            const parsedCompanyId = emailLocal.substring(0, secondUnderscore);
-            getDoc(doc(db, 'companies', parsedCompanyId, 'members', user.uid)).then((memberSnap) => {
-              if (memberSnap.exists()) {
-                const mData = memberSnap.data();
-                getDoc(doc(db, 'companies', parsedCompanyId)).then((compSnap) => {
-                  const compName = compSnap.exists() ? compSnap.data().name : 'Mi Empresa';
-                  
-                  setDoc(doc(db, 'users', user.uid), {
-                    uid: user.uid,
-                    email: user.email || '',
-                    name: mData.name || 'Empleado',
-                    createdAt: new Date().toISOString(),
-                    companies: {
-                      [parsedCompanyId]: {
-                        id: parsedCompanyId,
-                        name: compName,
-                        role: mData.role || 'employee'
-                      }
-                    },
-                    activeCompanyId: parsedCompanyId
-                  }).catch(err => handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}`));
-                }).catch(() => {
-                  setDoc(doc(db, 'users', user.uid), {
-                    uid: user.uid,
-                    email: user.email || '',
-                    name: mData.name || 'Empleado',
-                    createdAt: new Date().toISOString(),
-                    companies: {
-                      [parsedCompanyId]: {
-                        id: parsedCompanyId,
-                        name: 'Mi Empresa',
-                        role: mData.role || 'employee'
-                      }
-                    },
-                    activeCompanyId: parsedCompanyId
-                  }).catch(err => handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}`));
-                });
-              } else {
-                setDoc(doc(db, 'users', user.uid), {
-                  uid: user.uid,
-                  email: user.email || '',
-                  name: user.displayName || 'Comerciante',
-                  createdAt: new Date().toISOString(),
-                  companies: {}
-                }).catch(err => handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}`));
-                setActiveCompanyId(null);
-                setUserCompanies({});
-              }
-            }).catch(() => {
-              setDoc(doc(db, 'users', user.uid), {
-                uid: user.uid,
-                email: user.email || '',
-                name: user.displayName || 'Comerciante',
-                createdAt: new Date().toISOString(),
-                companies: {}
-              }).catch(err => handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}`));
-              setActiveCompanyId(null);
-              setUserCompanies({});
-            });
-          } else {
-            setDoc(doc(db, 'users', user.uid), {
-              uid: user.uid,
-              email: user.email || '',
-              name: user.displayName || 'Comerciante',
-              createdAt: new Date().toISOString(),
-              companies: {}
-            }).catch(err => handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}`));
-            setActiveCompanyId(null);
-            setUserCompanies({});
-          }
-        } else {
-          setDoc(doc(db, 'users', user.uid), {
-            uid: user.uid,
-            email: user.email || '',
-            name: user.displayName || 'Comerciante',
-            createdAt: new Date().toISOString(),
-            companies: {}
-          }).catch(err => handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}`));
-          setActiveCompanyId(null);
-          setUserCompanies({});
-        }
+        // Genuine new signup (Google account that's never created/joined a company) — this IS
+        // the correct steady state, not a failure: seeds an empty companies map so they land on
+        // "create your first company" instead of the employee waiting screen.
+        setDoc(doc(db, 'users', user.uid), {
+          uid: user.uid,
+          email: user.email || '',
+          name: user.displayName || 'Comerciante',
+          createdAt: new Date().toISOString(),
+          companies: {}
+        }).catch(err => handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}`));
+        setActiveCompanyId(null);
+        setUserCompanies({});
       }
     }, (error) => {
       handleFirestoreError(error, OperationType.GET, `users/${user.uid}`);
     });
 
     return () => unsubUser();
-  }, [user]);
+  }, [user, bootstrapRetryTrigger]);
 
   // Self-healing role sync to preserve security and sync changes automatically across active teams
   useEffect(() => {
@@ -1364,21 +1369,6 @@ export default function App() {
       handleFirestoreError(error, OperationType.LIST, `companies/${compId}/members`);
     });
 
-    const unsubSales = onSnapshot(collection(db, 'companies', compId, 'sales'), (snapshot) => {
-      const list: Sale[] = [];
-      snapshot.forEach(d => {
-        list.push(d.data() as Sale);
-      });
-      // `timestamp` is a locale display string (e.g. "30/6/2026, 4:55 p.m.") and isn't
-      // reliably parseable by `new Date()` — sort by the numeric `createdAt` instead.
-      // Older sales recorded before this field existed fall back to 0 (oldest last).
-      const saleSortKey = (s: Sale) => s.createdAt ?? 0;
-      list.sort((a, b) => saleSortKey(b) - saleSortKey(a));
-      setSales(list);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, `companies/${compId}/sales`);
-    });
-
     // Restaurant mode: open/closed tabs, read company-wide for the audit panel (Fase 2b)
     // and for the gastronomic flow (Fase 4). No writes happen yet — orders start appearing
     // once Fase 4 ships the table/comanda UI.
@@ -1409,15 +1399,6 @@ export default function App() {
       setAllCashRegisters(map);
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, `companies/${compId}/cashRegisters`);
-    });
-
-    const unsubStockMovements = onSnapshot(collection(db, 'companies', compId, 'stockMovements'), (snapshot) => {
-      const list: StockMovement[] = [];
-      snapshot.forEach(d => list.push(d.data() as StockMovement));
-      list.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
-      setStockMovements(list);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, `companies/${compId}/stockMovements`);
     });
 
     const unsubBranding = onSnapshot(doc(db, 'companies', compId, 'settings', 'branding'), (snapshot) => {
@@ -1451,11 +1432,9 @@ export default function App() {
       unsubBranches();
       unsubSuppliers();
       unsubMembers();
-      unsubSales();
       unsubOrders();
       unsubTables();
       unsubAllCashRegisters();
-      unsubStockMovements();
       unsubBranding();
       unsubPrintConfig();
     };
@@ -1486,6 +1465,53 @@ export default function App() {
     });
 
     return () => unsubCash();
+  }, [user, activeCompanyId, selectedBranchId]);
+
+  // Sales and stock movements are the two largest, fastest-growing collections in the company,
+  // so — like cashRegister above — they're scoped to the active branch's own `branchId` instead
+  // of loading every branch's full history into every session (that used to be the single
+  // biggest driver of Firestore read-quota consumption on the free plan). New sales/movements
+  // always carry a real branchId; the few screens that genuinely need every branch at once
+  // (AuditView, Facturación, Sucursales revenue cards, the CSV dashboard export, and the Drive
+  // backup) fetch those separately with a one-off getDocs query instead of depending on this
+  // live, branch-scoped stream.
+  useEffect(() => {
+    if (!user || !activeCompanyId || !selectedBranchId) return;
+    const compId = activeCompanyId;
+    const branchId = selectedBranchId;
+
+    const unsubSales = onSnapshot(
+      query(collection(db, 'companies', compId, 'sales'), where('branchId', '==', branchId)),
+      (snapshot) => {
+        const list: Sale[] = [];
+        snapshot.forEach(d => list.push(d.data() as Sale));
+        // `timestamp` is a locale display string (e.g. "30/6/2026, 4:55 p.m.") and isn't
+        // reliably parseable by `new Date()` — sort by the numeric `createdAt` instead.
+        // Older sales recorded before this field existed fall back to 0 (oldest last).
+        const saleSortKey = (s: Sale) => s.createdAt ?? 0;
+        list.sort((a, b) => saleSortKey(b) - saleSortKey(a));
+        setSales(list);
+      }, (error) => {
+        handleFirestoreError(error, OperationType.LIST, `companies/${compId}/sales`);
+      }
+    );
+
+    const unsubStockMovements = onSnapshot(
+      query(collection(db, 'companies', compId, 'stockMovements'), where('branchId', '==', branchId)),
+      (snapshot) => {
+        const list: StockMovement[] = [];
+        snapshot.forEach(d => list.push(d.data() as StockMovement));
+        list.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+        setStockMovements(list);
+      }, (error) => {
+        handleFirestoreError(error, OperationType.LIST, `companies/${compId}/stockMovements`);
+      }
+    );
+
+    return () => {
+      unsubSales();
+      unsubStockMovements();
+    };
   }, [user, activeCompanyId, selectedBranchId]);
 
   const getTodayDateString = () => {
@@ -2467,18 +2493,137 @@ export default function App() {
 
     csvContent += "RESUMEN DE SUCURSALES\n";
     csvContent += "Sucursal,Ventas Totales del periodo\n";
-    branches.forEach(b => {
-      const bSales = sales.filter(s =>
-        s.status === 'Completed' &&
-        (s.branchId === b.id || (!s.branchId && !!b.isMatriz)) &&
-        (statsMonth === 'all' || getSaleMonthKey(s) === statsMonth)
-      );
-      const bTotal = bSales.reduce((acc, curr) => acc + curr.total, 0);
-      csvContent += `${b.name.replace(/,/g, ' ')},${bTotal.toFixed(2)} MXN\n`;
-    });
+    // `sales` in memory is now scoped to only the active branch (see the branch-scoped
+    // listener), so the other branches' totals for this cross-branch summary are fetched
+    // fresh here, once, only when this export is actually clicked. Fetched in parallel but
+    // appended in `branches` order afterward, since Promise.all resolves out of order.
+    if (user && activeCompanyId) {
+      const compId = activeCompanyId;
+      const branchTotals = await Promise.all(branches.map(async (b) => {
+        const snap = await getDocs(query(
+          collection(db, 'companies', compId, 'sales'),
+          where('branchId', '==', b.id),
+          where('status', '==', 'Completed')
+        ));
+        let bTotal = 0;
+        snap.forEach(d => {
+          const s = d.data() as Sale;
+          if (statsMonth === 'all' || getSaleMonthKey(s) === statsMonth) bTotal += s.total;
+        });
+        return bTotal;
+      }));
+      branches.forEach((b, i) => {
+        csvContent += `${b.name.replace(/,/g, ' ')},${branchTotals[i].toFixed(2)} MXN\n`;
+      });
+    }
 
     await saveFileOnDevice(`informe_dashboard_${new Date().toISOString().split('T')[0]}.csv`, utf8ToBase64(csvContent), 'text/csv');
   };
+
+  // Revenue shown on each branch's card in the Sucursales tab — the only screen (besides
+  // AuditView/Facturación below) that needs every branch's totals at once. `sales` itself is
+  // now scoped to just the active branch (see the branch-scoped listener above), so this fetches
+  // each other branch's completed sales on demand, only while this tab is open, instead of
+  // keeping a live company-wide sales listener running at all times.
+  const [branchRevenueStats, setBranchRevenueStats] = useState<Record<string, { revenue: number; count: number }>>({});
+  // Throttle: `branches` (a dependency below) gets a new array reference every time its
+  // onSnapshot listener reconnects — common on phones that get backgrounded during a busy
+  // shift — which would otherwise silently re-run this all-branches query every reconnect while
+  // this tab happens to be open, on top of whoever re-opens the tab to check revenue. Skip
+  // refetching if the last successful fetch was less than 10 minutes ago.
+  const branchRevenueFetchedAtRef = useRef(0);
+  useEffect(() => {
+    if (activeTab !== 'branches' || !user || !activeCompanyId || branches.length === 0) return;
+    if (Date.now() - branchRevenueFetchedAtRef.current < 10 * 60 * 1000) return;
+    branchRevenueFetchedAtRef.current = Date.now(); // set before the fetch, not after, so two rapid re-fires can't both slip past the throttle check
+    let cancelled = false;
+    const compId = activeCompanyId;
+    (async () => {
+      try {
+        const entries = await Promise.all(branches.map(async (branch) => {
+          const snap = await getDocs(query(
+            collection(db, 'companies', compId, 'sales'),
+            where('branchId', '==', branch.id),
+            where('status', '==', 'Completed')
+          ));
+          let revenue = 0;
+          snap.forEach(d => { revenue += (d.data() as Sale).total; });
+          return [branch.id, { revenue, count: snap.size }] as const;
+        }));
+        if (!cancelled) setBranchRevenueStats(Object.fromEntries(entries));
+      } catch (err) {
+        handleFirestoreError(err, OperationType.LIST, `companies/${compId}/sales (branch revenue summary)`);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [activeTab, user, activeCompanyId, branches]);
+
+  // Facturación (CFDI) lists invoices from every branch at once, so — same reasoning as
+  // branchRevenueStats above — it keeps its own state fetched on demand instead of reading the
+  // now branch-scoped `sales`. Kept deliberately separate from `sales` so marking an invoice as
+  // facturado/pendiente here can never overwrite the active branch's live sales state via
+  // saveAllData.
+  const [invoiceSales, setInvoiceSales] = useState<Sale[]>([]);
+  // Same throttle as branchRevenueFetchedAtRef above: skip refetching if someone leaves and
+  // re-enters this tab within 10 minutes — avoids repeatedly paying for the whole company's
+  // invoice-flagged sales just from someone checking back and forth.
+  const invoiceSalesFetchedAtRef = useRef(0);
+  useEffect(() => {
+    if (activeTab !== 'invoicing' || !user || !activeCompanyId) return;
+    if (Date.now() - invoiceSalesFetchedAtRef.current < 10 * 60 * 1000) return;
+    invoiceSalesFetchedAtRef.current = Date.now();
+    let cancelled = false;
+    const compId = activeCompanyId;
+    (async () => {
+      try {
+        const snap = await getDocs(query(collection(db, 'companies', compId, 'sales'), where('requiresInvoice', '==', true)));
+        const list: Sale[] = [];
+        snap.forEach(d => list.push(d.data() as Sale));
+        if (!cancelled) setInvoiceSales(list);
+      } catch (err) {
+        handleFirestoreError(err, OperationType.LIST, `companies/${compId}/sales (facturacion)`);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [activeTab, user, activeCompanyId]);
+
+  // Updates one sale's invoiceStatus directly (not via saveAllData, which would replace the
+  // branch-scoped `sales` state) and reflects it in the locally-fetched invoiceSales list.
+  const handleSetInvoiceStatus = async (saleId: string, status: 'completed' | 'pending') => {
+    if (!user || !activeCompanyId) return;
+    try {
+      await updateDoc(doc(db, 'companies', activeCompanyId, 'sales', saleId), { invoiceStatus: status });
+      setInvoiceSales(prev => prev.map(s => s.id === saleId ? { ...s, invoiceStatus: status } : s));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `companies/${activeCompanyId}/sales/${saleId}`);
+    }
+  };
+
+  // AuditView cross-references sales+orders+cashRegisters across every branch — same reasoning
+  // as the two above, `sales` fetched fresh on demand instead of a permanent company-wide
+  // listener. `orders`/`cashRegisters` are NOT scoped this way: both are already company-wide by
+  // design (Fase 2b) and, unlike `sales`, are small/bounded collections, not the fast-growing
+  // history that was driving Firestore read-quota consumption.
+  const [auditSales, setAuditSales] = useState<Sale[]>([]);
+  const auditSalesFetchedAtRef = useRef(0);
+  useEffect(() => {
+    if (activeTab !== 'audit' || !user || !activeCompanyId) return;
+    if (Date.now() - auditSalesFetchedAtRef.current < 10 * 60 * 1000) return;
+    auditSalesFetchedAtRef.current = Date.now();
+    let cancelled = false;
+    const compId = activeCompanyId;
+    (async () => {
+      try {
+        const snap = await getDocs(collection(db, 'companies', compId, 'sales'));
+        const list: Sale[] = [];
+        snap.forEach(d => list.push(d.data() as Sale));
+        if (!cancelled) setAuditSales(list);
+      } catch (err) {
+        handleFirestoreError(err, OperationType.LIST, `companies/${compId}/sales (auditoria)`);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [activeTab, user, activeCompanyId]);
 
   const handleExportProducts = async () => {
     let csvContent = "\uFEFF";
@@ -3344,6 +3489,12 @@ export default function App() {
               </button>
             </form>
 
+            {authError && (
+              <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-[11px] text-red-700 font-semibold whitespace-pre-line">
+                {authError}
+              </div>
+            )}
+
             {/* SEPARATOR */}
             <div className="relative flex py-1 items-center">
               <div className="flex-grow border-t border-slate-200"></div>
@@ -3355,11 +3506,12 @@ export default function App() {
             <button
               type="button"
               onClick={async () => {
+                setAuthError('');
                 try {
                   await signInWithGoogle();
                 } catch (err: any) {
                   console.error(err);
-                  alert("Error al conectar con Google: " + (err.message || String(err)));
+                  setAuthError("Error al conectar con Google: " + (err.message || String(err)));
                 }
               }}
               className="w-full py-2.5 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs rounded-xl shadow-sm cursor-pointer transition flex items-center justify-center gap-2 select-none border border-slate-200"
@@ -5312,8 +5464,8 @@ export default function App() {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {branches.map(branch => {
                   const isActive = selectedBranchId === branch.id;
-                  const branchSales = sales.filter(s => s.status === 'Completed' && (s.branchId === branch.id || (!s.branchId && branch.id === 'b1')));
-                  const totalBranchRevenue = branchSales.reduce((sum, s) => sum + s.total, 0);
+                  const totalBranchRevenue = branchRevenueStats[branch.id]?.revenue ?? 0;
+                  const branchSalesCount = branchRevenueStats[branch.id]?.count ?? 0;
 
                   return (
                     <div 
@@ -5366,7 +5518,7 @@ export default function App() {
                               style={{ width: `${Math.min(100, (totalBranchRevenue / (stats.grossRevenue || 1)) * 100)}%` }}
                             ></div>
                           </div>
-                          <p className="text-[9px] text-slate-400 text-right mt-1 font-semibold">{branchSales.length} transacciones exitosas</p>
+                          <p className="text-[9px] text-slate-400 text-right mt-1 font-semibold">{branchSalesCount} transacciones exitosas</p>
                         </div>
                       </div>
 
@@ -5578,9 +5730,9 @@ export default function App() {
               </div>
 
               {/* Rendering list of sales that require invoice */}
-              {sales.filter(s => s.requiresInvoice && (invoiceStatusFilter === 'all' || s.invoiceStatus === invoiceStatusFilter)).length > 0 ? (
+              {invoiceSales.filter(s => invoiceStatusFilter === 'all' || s.invoiceStatus === invoiceStatusFilter).length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
-                  {sales.filter(s => s.requiresInvoice && (invoiceStatusFilter === 'all' || s.invoiceStatus === invoiceStatusFilter)).map(sale => (
+                  {invoiceSales.filter(s => invoiceStatusFilter === 'all' || s.invoiceStatus === invoiceStatusFilter).map(sale => (
                     <div key={sale.id} className="border border-slate-200 rounded-xl p-4 shadow-sm bg-white hover:border-indigo-200 transition">
                       <div className="flex justify-between items-start mb-2">
                         <span className="font-bold text-slate-700 text-sm">{sale.id}</span>
@@ -5602,10 +5754,7 @@ export default function App() {
                         <span className="text-xs font-black text-slate-800">Total: {formatMXN(sale.total)}</span>
                         {sale.invoiceStatus !== 'completed' && (
                           <button
-                            onClick={() => {
-                              const updatedSales = sales.map(s => s.id === sale.id ? { ...s, invoiceStatus: 'completed' as const } : s);
-                              saveAllData(products, customers, updatedSales, cashRegister);
-                            }}
+                            onClick={() => handleSetInvoiceStatus(sale.id, 'completed')}
                             className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow-sm"
                           >
                             Marcar Facturado
@@ -5613,10 +5762,7 @@ export default function App() {
                         )}
                         {sale.invoiceStatus === 'completed' && (
                           <button
-                            onClick={() => {
-                              const updatedSales = sales.map(s => s.id === sale.id ? { ...s, invoiceStatus: 'pending' as const } : s);
-                              saveAllData(products, customers, updatedSales, cashRegister);
-                            }}
+                            onClick={() => handleSetInvoiceStatus(sale.id, 'pending')}
                             className="text-slate-400 hover:text-slate-600 underline text-[10px] font-bold p-1"
                           >
                             Revertir
@@ -5646,7 +5792,7 @@ export default function App() {
           {activeTab === 'audit' && (
             <AuditView
               companyName={branding.displayName || userCompanies[activeCompanyId || '']?.name || 'Mi Comercio'}
-              sales={sales}
+              sales={auditSales}
               orders={orders}
               cashRegisters={allCashRegisters}
               branches={branches}
@@ -5771,6 +5917,13 @@ export default function App() {
                     console.error("Popup login error in setting sync:", e);
                     throw e;
                   }
+                }}
+                onFetchAllSalesForBackup={async () => {
+                  if (!activeCompanyId) return [];
+                  const snap = await getDocs(collection(db, 'companies', activeCompanyId, 'sales'));
+                  const list: Sale[] = [];
+                  snap.forEach(d => list.push(d.data() as Sale));
+                  return list;
                 }}
                 onRestoreCompanyData={handleRestoreCompanyData}
                 branding={branding}
@@ -7022,18 +7175,38 @@ export default function App() {
       {/* Waiting screen for credential employees while Firestore resolves their company */}
       {user && !isAuthLoading && !activeCompanyId && isCredentialEmployee && (
         <div className="fixed inset-0 z-50 bg-slate-900 flex flex-col items-center justify-center p-6 text-center">
-          <div className="w-16 h-16 rounded-2xl bg-indigo-900/40 border border-indigo-700/30 flex items-center justify-center mb-5">
-            <ShoppingCart className="w-8 h-8 text-indigo-400 animate-pulse" />
-          </div>
-          <h2 className="text-xl font-black text-slate-100 mb-2">Conectando al sistema...</h2>
-          <p className="text-slate-400 text-sm max-w-xs leading-relaxed mb-6">
-            Estamos verificando tus credenciales y cargando tu sucursal asignada.
-          </p>
-          <div className="flex gap-1.5 mb-8">
-            <span className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-            <span className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-            <span className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-          </div>
+          {credentialBootstrapFailed ? (
+            <>
+              <div className="w-16 h-16 rounded-2xl bg-rose-900/40 border border-rose-700/30 flex items-center justify-center mb-5">
+                <AlertCircle className="w-8 h-8 text-rose-400" />
+              </div>
+              <h2 className="text-xl font-black text-slate-100 mb-2">No pudimos verificar tu cuenta</h2>
+              <p className="text-slate-400 text-sm max-w-xs leading-relaxed mb-6">
+                Revisa tu conexión a internet e intenta de nuevo. Si el problema sigue, avisa a tu encargado.
+              </p>
+              <button
+                onClick={() => { setCredentialBootstrapFailed(false); setBootstrapRetryTrigger(n => n + 1); }}
+                className="px-6 py-2.5 mb-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm rounded-xl shadow cursor-pointer transition"
+              >
+                Reintentar
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="w-16 h-16 rounded-2xl bg-indigo-900/40 border border-indigo-700/30 flex items-center justify-center mb-5">
+                <ShoppingCart className="w-8 h-8 text-indigo-400 animate-pulse" />
+              </div>
+              <h2 className="text-xl font-black text-slate-100 mb-2">Conectando al sistema...</h2>
+              <p className="text-slate-400 text-sm max-w-xs leading-relaxed mb-6">
+                Estamos verificando tus credenciales y cargando tu sucursal asignada.
+              </p>
+              <div className="flex gap-1.5 mb-8">
+                <span className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                <span className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                <span className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+              </div>
+            </>
+          )}
           <button
             onClick={() => signOut(auth)}
             className="text-xs text-slate-500 hover:text-slate-300 underline cursor-pointer transition"
