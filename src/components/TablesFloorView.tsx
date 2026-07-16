@@ -1,17 +1,24 @@
 import React, { useState, useMemo } from 'react';
-import { 
-  Users, 
-  Coffee, 
-  Clock, 
-  User, 
+import {
+  Users,
+  Coffee,
+  Clock,
+  User,
   DollarSign,
   CheckCircle2,
   AlertCircle,
   HelpCircle,
-  Plus
+  Plus,
+  Settings,
+  X,
+  Check,
+  Trash2,
+  Utensils,
+  FolderOpen
 } from 'lucide-react';
 import { doc, updateDoc, writeBatch } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
+import { formatMXN } from '../lib/format';
 
 interface Table {
   id: string;
@@ -56,12 +63,9 @@ interface TablesFloorViewProps {
   currentUserMember: any;
   user: any;
   onManageOrder: (table: Table) => void;
+  branchZones: string[];
 }
 
-const formatMXN = (val: number): string => {
-  if (isNaN(val) || val === undefined || val === null) return '$0.00 MXN';
-  return `$${val.toFixed(2)} MXN`;
-};
 
 export default function TablesFloorView({
   tables,
@@ -71,9 +75,10 @@ export default function TablesFloorView({
   activeCompanyId,
   currentUserMember,
   user,
-  onManageOrder
+  onManageOrder,
+  branchZones
 }: TablesFloorViewProps) {
-  const [selectedZone, setSelectedZone] = useState<'Todas' | 'Principal' | 'Terraza' | 'Bar/VIP'>('Todas');
+  const [selectedZone, setSelectedZone] = useState<string>('Todas');
   const [selectedStatus, setSelectedStatus] = useState<'All' | 'libre' | 'ocupada' | 'por_cobrar'>('All');
   const [activeTable, setActiveTable] = useState<Table | null>(null);
 
@@ -81,7 +86,13 @@ export default function TablesFloorView({
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [newTableName, setNewTableName] = useState('');
   const [newTableCapacity, setNewTableCapacity] = useState(4);
-  const [newTableZone, setNewTableZone] = useState<'Principal' | 'Terraza' | 'Bar/VIP'>('Principal');
+  const [newTableZone, setNewTableZone] = useState<string>(branchZones[0] || '');
+
+  // States for Edit Zones Modal
+  const [isZonesModalOpen, setIsZonesModalOpen] = useState(false);
+  const [newZoneName, setNewZoneName] = useState('');
+  const [editingZoneIndex, setEditingZoneIndex] = useState<number | null>(null);
+  const [editingZoneValue, setEditingZoneValue] = useState('');
   const [newTableShape, setNewTableShape] = useState<'square' | 'round'>('square');
 
   // State for Custom Confirm Modal
@@ -234,7 +245,7 @@ export default function TablesFloorView({
       
       setNewTableName('');
       setNewTableCapacity(4);
-      setNewTableZone('Principal');
+      setNewTableZone(branchZones[0] || '');
       setNewTableShape('square');
       setIsAddModalOpen(false);
     } catch (err) {
@@ -265,9 +276,71 @@ export default function TablesFloorView({
     );
   };
 
+  // Zone management: zones are per-branch (branchZones prop), stored as a plain string[] on
+  // the Branch doc — not every restaurant has the same salon layout, so this replaced the
+  // fixed 'Principal'/'Terraza'/'Bar/VIP' list.
+  const handleAddZone = async () => {
+    const clean = newZoneName.trim();
+    if (!clean) return;
+    if (branchZones.includes(clean)) {
+      alert(`La zona "${clean}" ya existe.`);
+      return;
+    }
+    try {
+      await updateDoc(doc(db, 'companies', activeCompanyId, 'branches', selectedBranchId), {
+        zones: [...branchZones, clean]
+      });
+      setNewZoneName('');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `companies/${activeCompanyId}/branches/${selectedBranchId}`);
+    }
+  };
+
+  const handleRenameZone = async (index: number) => {
+    const oldName = branchZones[index];
+    const cleanNew = editingZoneValue.trim();
+    if (!cleanNew || cleanNew === oldName) {
+      setEditingZoneIndex(null);
+      return;
+    }
+    if (branchZones.includes(cleanNew)) {
+      alert(`La zona "${cleanNew}" ya existe.`);
+      return;
+    }
+    try {
+      const updatedZones = branchZones.map((z, i) => i === index ? cleanNew : z);
+      const batch = writeBatch(db);
+      batch.update(doc(db, 'companies', activeCompanyId, 'branches', selectedBranchId), { zones: updatedZones });
+      // Re-point any table already sitting in the renamed zone so it doesn't go orphaned.
+      branchTables.filter(t => (t.zone || branchZones[0]) === oldName).forEach(t => {
+        batch.update(doc(db, 'companies', activeCompanyId, 'tables', t.id), { zone: cleanNew });
+      });
+      await batch.commit();
+      setEditingZoneIndex(null);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `companies/${activeCompanyId}/branches/${selectedBranchId}`);
+    }
+  };
+
+  const handleDeleteZone = async (index: number) => {
+    const zoneName = branchZones[index];
+    const tablesInZone = branchTables.filter(t => (t.zone || branchZones[0]) === zoneName);
+    if (tablesInZone.length > 0) {
+      alert(`No se puede eliminar "${zoneName}": ${tablesInZone.length} mesa(s) siguen asignadas a esa zona. Reasígnalas primero.`);
+      return;
+    }
+    try {
+      await updateDoc(doc(db, 'companies', activeCompanyId, 'branches', selectedBranchId), {
+        zones: branchZones.filter((_, i) => i !== index)
+      });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `companies/${activeCompanyId}/branches/${selectedBranchId}`);
+    }
+  };
+
   return (
     <div className="p-6 bg-slate-50 dark:bg-slate-950 min-h-screen text-slate-800 dark:text-slate-100 flex flex-col space-y-6">
-      
+
       {/* Header Section */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-200 dark:border-slate-800 pb-5">
         <div>
@@ -299,7 +372,7 @@ export default function TablesFloorView({
             <h4 className="text-xl font-black mt-1">{totalTables}</h4>
           </div>
           <div className="w-10 h-10 bg-slate-50 dark:bg-slate-850 rounded-xl flex items-center justify-center font-bold text-slate-500 text-sm">
-            📊
+            <Coffee className="w-4 h-4" />
           </div>
         </div>
 
@@ -352,7 +425,7 @@ export default function TablesFloorView({
       {/* Navigation Filter Tabs */}
       <div className="flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3 rounded-2xl shadow-sm">
         <div className="flex items-center space-x-1.5 overflow-x-auto max-w-full">
-          {(['Todas', 'Principal', 'Terraza', 'Bar/VIP'] as const).map(zone => (
+          {['Todas', ...branchZones].map(zone => (
             <button
               key={zone}
               onClick={() => setSelectedZone(zone)}
@@ -365,6 +438,13 @@ export default function TablesFloorView({
               {zone}
             </button>
           ))}
+          <button
+            onClick={() => setIsZonesModalOpen(true)}
+            title="Editar zonas del salón"
+            className="p-2 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 text-slate-400 hover:text-[var(--brand-primary,#6366f1)] hover:border-[var(--brand-primary,#6366f1)] transition cursor-pointer shrink-0"
+          >
+            <Settings className="w-4 h-4" />
+          </button>
         </div>
 
         {/* Legend Indicator */}
@@ -525,11 +605,12 @@ export default function TablesFloorView({
                       </h4>
                       <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">Detalle Operativo</p>
                     </div>
-                    <button 
+                    <button
                       onClick={() => setActiveTable(null)}
+                      aria-label="Cerrar"
                       className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 font-extrabold text-sm"
                     >
-                      ✕
+                      <X className="w-4 h-4" />
                     </button>
                   </div>
 
@@ -550,7 +631,7 @@ export default function TablesFloorView({
                     }}
                   >
                     <span className="text-2xl">
-                      {activeTable.status === 'ocupada' ? '🍽️' : activeTable.status === 'por_cobrar' ? '💰' : '🟢'}
+                      {activeTable.status === 'ocupada' ? <Utensils className="w-6 h-6" /> : activeTable.status === 'por_cobrar' ? <DollarSign className="w-6 h-6" /> : <CheckCircle2 className="w-6 h-6" />}
                     </span>
                     <div>
                       <h5 className="text-xs font-black uppercase tracking-wide">
@@ -625,16 +706,16 @@ export default function TablesFloorView({
                       onClick={() => handleOpenTable(activeTable)}
                       className="w-full py-3 bg-[var(--brand-primary,#6366f1)] hover:bg-[color-mix(in_srgb,var(--brand-primary,#6366f1)_90%,black)] active:scale-98 text-white font-extrabold text-xs rounded-xl shadow transition cursor-pointer text-center uppercase tracking-wider"
                     >
-                      Apertura de Mesa 🍽️
+                      Apertura de Mesa
                     </button>
                   ) : (
                     <div className="flex flex-col gap-2">
                       <button
                         type="button"
                         onClick={() => onManageOrder(activeTable)}
-                        className="w-full py-3 bg-slate-850 hover:bg-black text-white font-extrabold text-xs rounded-xl transition cursor-pointer text-center uppercase tracking-wider"
+                        className="w-full py-3 bg-slate-850 hover:bg-black text-white font-extrabold text-xs rounded-xl transition cursor-pointer text-center uppercase tracking-wider flex items-center justify-center gap-1.5"
                       >
-                        📂 Gestionar Comanda / Cobrar
+                        <FolderOpen className="w-3.5 h-3.5" />Gestionar Comanda / Cobrar
                       </button>
                       <button
                         type="button"
@@ -654,12 +735,12 @@ export default function TablesFloorView({
                             : 'border-rose-300 bg-rose-50/30 text-rose-700 hover:bg-rose-50'
                         }`}
                       >
-                        {activeTable.status === 'ocupada' ? '⚠️ Marcar Por Cobrar' : '🍽️ Regresar a Ocupada'}
+                        {activeTable.status === 'ocupada' ? 'Marcar Por Cobrar' : 'Regresar a Ocupada'}
                       </button>
                     </div>
                   )}
 
-                  {activeTable.status !== 'libre' && (
+                  {activeTable.status !== 'libre' && currentUserMember?.role !== 'mesero' && (
                     <button
                       type="button"
                       onClick={() => handleReleaseTable(activeTable)}
@@ -673,9 +754,9 @@ export default function TablesFloorView({
                     <button
                       type="button"
                       onClick={() => handleDeleteTable(activeTable)}
-                      className="w-full py-2 bg-red-50 hover:bg-red-100 text-red-600 hover:text-red-700 font-extrabold text-[10px] uppercase rounded-xl transition cursor-pointer text-center tracking-wide border border-red-200"
+                      className="w-full py-2 bg-red-50 hover:bg-red-100 text-red-600 hover:text-red-700 font-extrabold text-[10px] uppercase rounded-xl transition cursor-pointer text-center tracking-wide border border-red-200 flex items-center justify-center gap-1.5"
                     >
-                      🗑️ Eliminar Mesa del Salón
+                      <Trash2 className="w-3 h-3" />Eliminar Mesa del Salón
                     </button>
                   )}
                 </div>
@@ -701,13 +782,14 @@ export default function TablesFloorView({
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 w-full max-w-md shadow-2xl animate-in fade-in zoom-in-95 duration-150 text-slate-800 dark:text-slate-100">
             <div className="flex justify-between items-center pb-4 border-b border-slate-100 dark:border-slate-800">
               <h3 className="text-base font-black text-slate-800 dark:text-white flex items-center gap-2">
-                <span>🍽️ Crear Nueva Mesa</span>
+                <Utensils className="w-4 h-4" /><span>Crear Nueva Mesa</span>
               </h3>
-              <button 
+              <button
                 onClick={() => setIsAddModalOpen(false)}
+                aria-label="Cerrar"
                 className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 font-extrabold text-sm cursor-pointer"
               >
-                ✕
+                <X className="w-4 h-4" />
               </button>
             </div>
 
@@ -748,8 +830,8 @@ export default function TablesFloorView({
                     onChange={e => setNewTableShape(e.target.value as 'square' | 'round')}
                     className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs rounded-xl p-3 outline-none font-bold focus:ring-2 focus:ring-[var(--brand-primary,#6366f1)] text-slate-800 dark:text-white cursor-pointer"
                   >
-                    <option value="square">Cuadrada ⬜</option>
-                    <option value="round">Redonda ⚪</option>
+                    <option value="square">Cuadrada</option>
+                    <option value="round">Redonda</option>
                   </select>
                 </div>
               </div>
@@ -759,12 +841,13 @@ export default function TablesFloorView({
                 <label className="text-[10px] text-slate-500 dark:text-slate-400 font-black uppercase tracking-wider block">Zona del Salón</label>
                 <select
                   value={newTableZone}
-                  onChange={e => setNewTableZone(e.target.value as 'Principal' | 'Terraza' | 'Bar/VIP')}
+                  onChange={e => setNewTableZone(e.target.value)}
                   className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs rounded-xl p-3 outline-none font-bold focus:ring-2 focus:ring-[var(--brand-primary,#6366f1)] text-slate-800 dark:text-white cursor-pointer"
                 >
-                  <option value="Principal">Principal 🛋️</option>
-                  <option value="Terraza">Terraza 🌿</option>
-                  <option value="Bar/VIP">Bar / VIP 🍸</option>
+                  {branchZones.length === 0 && <option value="">Sin zonas configuradas</option>}
+                  {branchZones.map(zone => (
+                    <option key={zone} value={zone}>{zone}</option>
+                  ))}
                 </select>
               </div>
 
@@ -794,7 +877,7 @@ export default function TablesFloorView({
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 w-full max-w-sm shadow-2xl animate-in fade-in zoom-in-95 duration-150 text-slate-800 dark:text-slate-100">
             <div className="text-center space-y-4">
               <div className="w-12 h-12 bg-rose-50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 rounded-full flex items-center justify-center mx-auto border border-rose-100 dark:border-rose-900/50 text-xl font-bold">
-                ⚠️
+                <AlertCircle className="w-6 h-6" />
               </div>
               <div className="space-y-1">
                 <h4 className="text-sm font-black text-slate-800 dark:text-white uppercase tracking-wide">
@@ -823,6 +906,92 @@ export default function TablesFloorView({
                   Confirmar
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Zones Modal — zones are per-branch, not a fixed list */}
+      {isZonesModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 w-full max-w-sm shadow-2xl text-slate-800 dark:text-slate-100">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-sm font-black uppercase tracking-wide">Zonas del Salón</h3>
+              <button
+                type="button"
+                onClick={() => { setIsZonesModalOpen(false); setEditingZoneIndex(null); setNewZoneName(''); }}
+                aria-label="Cerrar"
+                className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 rounded-full transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {branchZones.length === 0 && (
+                <p className="text-xs text-slate-400 text-center py-4">Sin zonas todavía. Agrega la primera abajo.</p>
+              )}
+              {branchZones.map((zone, index) => (
+                <div key={zone} className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2">
+                  {editingZoneIndex === index ? (
+                    <>
+                      <input
+                        type="text"
+                        value={editingZoneValue}
+                        onChange={e => setEditingZoneValue(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') handleRenameZone(index); if (e.key === 'Escape') setEditingZoneIndex(null); }}
+                        autoFocus
+                        className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-bold outline-none focus:ring-1 focus:ring-[var(--brand-primary,#6366f1)]"
+                      />
+                      <button type="button" onClick={() => handleRenameZone(index)} className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg cursor-pointer transition" title="Guardar">
+                        <Check className="w-3.5 h-3.5" />
+                      </button>
+                      <button type="button" onClick={() => setEditingZoneIndex(null)} className="p-1.5 text-slate-400 hover:bg-slate-100 rounded-lg cursor-pointer transition" title="Cancelar">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="flex-1 text-xs font-bold truncate">{zone}</span>
+                      <button
+                        type="button"
+                        onClick={() => { setEditingZoneIndex(index); setEditingZoneValue(zone); }}
+                        className="p-1.5 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg cursor-pointer transition"
+                        title="Renombrar"
+                      >
+                        <Settings className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteZone(index)}
+                        className="p-1.5 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg cursor-pointer transition"
+                        title="Eliminar zona"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div className="flex gap-2 mt-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+              <input
+                type="text"
+                value={newZoneName}
+                onChange={e => setNewZoneName(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') handleAddZone(); }}
+                placeholder="Nueva zona (ej. Rooftop)"
+                className="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold outline-none focus:ring-2 focus:ring-[var(--brand-primary,#6366f1)]"
+              />
+              <button
+                type="button"
+                onClick={handleAddZone}
+                className="px-3 py-2 bg-[var(--brand-primary,#6366f1)] hover:bg-[color-mix(in_srgb,var(--brand-primary,#6366f1)_90%,black)] text-white rounded-xl cursor-pointer transition"
+                title="Agregar zona"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
             </div>
           </div>
         </div>

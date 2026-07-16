@@ -36,10 +36,18 @@ import {
   List,
   Utensils,
   Sun,
-  Moon
+  Moon,
+  ArrowDownCircle,
+  ArrowUpCircle,
+  RefreshCw,
+  TrendingDown,
+  MessageCircle,
+  Mail
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { autoTable } from 'jspdf-autotable';
+import { formatMXN } from './lib/format';
+import { DEFAULT_PRODUCT_CATEGORY } from './lib/constants';
 
 // Firebase integrations
 import { auth, db, googleProvider, driveGoogleProvider, OperationType, handleFirestoreError, getCachedAccessToken, setCachedAccessToken } from './firebase';
@@ -243,6 +251,7 @@ interface Branch {
   phone: string;
   manager: string;
   isMatriz?: boolean; // Toggle for main manufacturing branch
+  zones?: string[]; // Editable salon zones for Mesas/Salón (e.g. "Terraza", "Bar") — not every restaurant has the same ones, so this replaces a fixed list.
 }
 
 // Append-only inventory audit log — one entry per restock ("surtido") or per side of an
@@ -373,11 +382,6 @@ interface Order {
   closedAt?: string;
   saleId?: string;
 }
-
-export const formatMXN = (val: number): string => {
-  if (isNaN(val) || val === undefined || val === null) return '$0.00 MXN';
-  return `$${val.toFixed(2)} MXN`;
-};
 
 const MONTH_NAMES_ES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
@@ -792,6 +796,10 @@ export default function App() {
   const activeCompanyRole = user && activeCompanyId ? (userCompanies[activeCompanyId]?.role || 'employee') : 'owner';
   // Mirrors firestore.rules isOwnerOrAdmin() — refunds/voids require this client-side too
   const isOwnerOrAdminRole = activeCompanyRole === 'owner' || activeCompanyRole === 'master_admin' || activeCompanyRole === 'admin';
+  // Cajero's base Inventario access is view-only (no editar/eliminar/surtir/transferir) —
+  // "Asignar Tareas" permissions grant these as extra capabilities on top of that baseline.
+  const canEditProducts = isOwnerOrAdminRole || !!currentUserMember?.permissions?.includes('products_edit');
+  const canTransferStock = isOwnerOrAdminRole || !!currentUserMember?.permissions?.includes('stock_transfer');
 
   // True when the logged-in user authenticated with an employee code (virtual email), not Google
   const isCredentialEmployee = Boolean(user?.email?.includes('_') && user?.email?.endsWith('@logicpos.com'));
@@ -1852,7 +1860,7 @@ export default function App() {
   const [lastReceivedAmount, setLastReceivedAmount] = useState<number>(0);
 
   const selectCategoriesList = useMemo(() => {
-    const cats = Array.from(new Set(products.map(p => p.category || 'Generales')));
+    const cats = Array.from(new Set(products.map(p => p.category || DEFAULT_PRODUCT_CATEGORY)));
     const defaults = ['Generales', 'Bebidas', 'Alimentos', 'Postres'];
     return Array.from(new Set([...defaults, ...customCategories, ...cats])).filter(c => c !== 'Todos');
   }, [products, customCategories]);
@@ -1876,7 +1884,7 @@ export default function App() {
     const cleanNewName = newName.trim();
 
     const updatedProducts = products.map(p => {
-      if ((p.category || 'Generales') === oldName) {
+      if ((p.category || DEFAULT_PRODUCT_CATEGORY) === oldName) {
         return { ...p, category: cleanNewName };
       }
       return p;
@@ -2255,7 +2263,7 @@ export default function App() {
           return {
             ...p,
             name: prodForm.name,
-            category: prodForm.category || 'Varios',
+            category: prodForm.category || DEFAULT_PRODUCT_CATEGORY,
             costPrice: costPriceNum,
             salePrice: salePriceNum,
             stock: stockNum,
@@ -2471,7 +2479,7 @@ export default function App() {
 
     products.forEach(p => {
       let row = `"${p.id}","${p.name.replace(/"/g, '""')}",` +
-                `"${(p.category || 'General').replace(/"/g, '""')}",` +
+                `"${(p.category || DEFAULT_PRODUCT_CATEGORY).replace(/"/g, '""')}",` +
                 `${p.costPrice || 0},${p.salePrice || 0},${p.stock || 0},${p.minStock || 0},` +
                 `"${p.sku || ''}"`;
       
@@ -2815,7 +2823,10 @@ export default function App() {
         address: branchForm.address,
         phone: branchForm.phone,
         manager: branchForm.manager,
-        isMatriz: !!branchForm.isMatriz
+        isMatriz: !!branchForm.isMatriz,
+        // Seeded with today's names so existing tables (already stamped with these zone
+        // strings) don't go orphaned — fully editable afterwards via "Editar Zonas".
+        zones: ['Principal', 'Terraza', 'Bar/VIP']
       };
       updated = [...branches, newB];
     }
@@ -3212,7 +3223,7 @@ export default function App() {
     activeSales.forEach(s => {
       s.items.forEach(item => {
         const p = products.find(prod => prod.id === item.productId);
-        const cat = p ? p.category : 'Otros';
+        const cat = p?.category || DEFAULT_PRODUCT_CATEGORY;
         categoryPopularity[cat] = (categoryPopularity[cat] || 0) + item.quantity;
       });
     });
@@ -3316,7 +3327,7 @@ export default function App() {
                 disabled={isSignInLoading}
                 className="w-full py-2.5 bg-slate-800 hover:bg-slate-900 text-white font-extrabold text-xs rounded-xl shadow cursor-pointer transition select-none tracking-wide text-center disabled:opacity-50 mt-1"
               >
-                {isSignInLoading ? 'Verificando...' : 'Entrar al Sistema 🔑'}
+                {isSignInLoading ? 'Verificando...' : 'Entrar al Sistema'}
               </button>
             </form>
 
@@ -3372,6 +3383,7 @@ export default function App() {
         branding={branding}
         onLogout={() => signOut(auth)}
         buildAndCommitSale={buildAndCommitSale}
+        onSaleComplete={setLastCompletedSale}
         userAvailableCompanies={userCompanies}
         onLeaveCompany={() => {
           localStorage.removeItem(`logic_active_company_${user.uid}`);
@@ -3504,7 +3516,7 @@ export default function App() {
           <div className="flex items-center space-x-3 text-xs leading-relaxed">
             <AlertCircle className="w-5 h-5 flex-shrink-0 animate-bounce text-white" />
             <div>
-              <span className="font-black text-xs block tracking-wider uppercase opacity-90">⚠️ Alerta Contable</span>
+              <span className="font-black text-xs block tracking-wider uppercase opacity-90">Alerta Contable</span>
               El sistema detectó que <strong className="underline">no se realizó el corte de caja</strong> el día anterior (<span className="font-mono">{warningOperationalDate || 'ayer'}</span>). Por favor, realiza el corte antes de registrar ventas hoy para mantener la contabilidad exacta y organizada.
             </div>
           </div>
@@ -3516,7 +3528,7 @@ export default function App() {
               }}
               className="bg-white text-amber-900 hover:bg-amber-50 font-extrabold text-[10px] px-3.5 py-1.5 rounded-lg shadow-sm cursor-pointer border border-amber-200 transition uppercase tracking-wider"
             >
-              Hacer Corte Ahora 📝
+              Hacer Corte Ahora
             </button>
             <button
               onClick={() => setShowOvernightWarning(false)}
@@ -3534,7 +3546,7 @@ export default function App() {
           <div className="flex items-center space-x-3 text-xs leading-relaxed">
             <AlertCircle className="w-5 h-5 flex-shrink-0 animate-bounce text-white" />
             <div>
-              <span className="font-black text-xs block tracking-wider uppercase opacity-90">⚠️ Caja Cerrada</span>
+              <span className="font-black text-xs block tracking-wider uppercase opacity-90">Caja Cerrada</span>
               La caja registradora está <strong className="underline">cerrada</strong>. Por favor, realiza la apertura de caja antes de registrar ventas.
             </div>
           </div>
@@ -3546,7 +3558,7 @@ export default function App() {
               }}
               className="bg-white text-amber-900 hover:bg-amber-50 font-extrabold text-[10px] px-3.5 py-1.5 rounded-lg shadow-sm cursor-pointer border border-amber-200 transition uppercase tracking-wider"
             >
-              Abrir Caja Ahora 🚀
+              Abrir Caja Ahora
             </button>
             <button
               onClick={() => setShowClosedCajaBanner(false)}
@@ -3590,11 +3602,24 @@ export default function App() {
             </button>
           ))}
 
+          {/* Historial / Caja: base access for Cajero too — abrir/cerrar turno is literally
+              their job, not an admin-only concern like the tabs below. */}
+          {[
+            { id: 'history',    label: 'Historial / Caja',    icon: <Receipt className="w-5 h-5" /> },
+          ].map(({ id, label, icon }) => (
+            <button key={id} id={`nav-${id}`}
+              onClick={() => { setActiveTab(id as typeof activeTab); setIsMobileMenuOpen(false); }}
+              className={activeTab === id ? navActiveClass : navInactiveClass}
+              style={activeTab === id ? navActiveStyle : {}}
+            >
+              {icon}<span className="mt-1 md:mt-0">{label}</span>
+            </button>
+          ))}
+
           {activeCompanyRole !== 'employee' && [
             { id: 'branches',   label: 'Sucursales',          icon: <Store className="w-5 h-5" /> },
             { id: 'suppliers',  label: 'Proveedores',         icon: <Truck className="w-5 h-5" /> },
             { id: 'invoicing',  label: 'Facturación',         icon: <FileText className="w-5 h-5" /> },
-            { id: 'history',    label: 'Historial / Caja',    icon: <Receipt className="w-5 h-5" /> },
             { id: 'analytics',  label: 'Estadísticas',        icon: <BarChart3 className="w-5 h-5" /> },
           ].map(({ id, label, icon }) => (
             <button key={id} id={`nav-${id}`}
@@ -3650,6 +3675,7 @@ export default function App() {
                   setDashboardSelectedTable(null);
                   setDashboardIsManagingOrder(false);
                 }}
+                onSaleComplete={setLastCompletedSale}
                 printConfig={printConfig}
               />
             ) : (
@@ -3665,6 +3691,7 @@ export default function App() {
                   setDashboardSelectedTable(table);
                   setDashboardIsManagingOrder(true);
                 }}
+                branchZones={branches.find(b => b.id === selectedBranchId)?.zones || ['Principal', 'Terraza', 'Bar/VIP']}
               />
             )
           )}
@@ -3704,7 +3731,7 @@ export default function App() {
                       className="bg-emerald-600 hover:bg-emerald-705 text-white font-extrabold text-sm px-4 py-2.5 rounded-xl flex items-center whitespace-nowrap gap-2 cursor-pointer shadow-sm transition"
                       title="Exportar catálogo completo con existencias multisuccursal a CSV"
                     >
-                      📥 Exportar Inventario (CSV)
+                      <Download className="w-4 h-4" />Exportar Inventario (CSV)
                     </button>
                     <button
                       onClick={() => setIsCategoryModalOpen(true)}
@@ -3781,7 +3808,7 @@ export default function App() {
                         <span className={`font-bold ${getProductStock(prod, selectedBranchId) <= prod.minStock ? 'text-purple-650' : 'text-slate-800'}`}>{getProductStock(prod, selectedBranchId)} u.</span>
                       </div>
 
-                      {activeCompanyRole !== 'employee' && branches.length > 1 && (
+                      {branches.length > 1 && (
                         <div className="mt-2 bg-slate-50 p-2 rounded-lg border border-slate-100 text-[10px] space-y-1 text-left">
                           <p className="font-extrabold text-slate-400 uppercase tracking-wider">Stock por Sucursal:</p>
                           <div className="space-y-0.5 max-h-20 overflow-y-auto">
@@ -3798,9 +3825,9 @@ export default function App() {
                       )}
                     </div>
 
-                    {activeCompanyRole !== 'employee' ? (
+                    {(canEditProducts || canTransferStock) ? (
                       <div className="mt-4 pt-4 border-t border-slate-100">
-                        {branches.length > 1 && (
+                        {canTransferStock && branches.length > 1 && (
                           <button
                             type="button"
                             onClick={() => handleOpenTransferModal(prod.id)}
@@ -3809,32 +3836,36 @@ export default function App() {
                             <Package className="w-3.5 h-3.5 inline mr-1" /><span>Transferir / Repartir Stock</span>
                           </button>
                         )}
-                        <button
-                          type="button"
-                          onClick={() => { setQuickStockProduct(prod); setQuickStockAmount(''); }}
-                          className="w-full py-2 mb-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-100 text-emerald-700 text-xs font-black rounded-xl cursor-pointer transition text-center flex items-center justify-center"
-                          title={`Sumar unidades al stock de ${branches.find(b => b.id === selectedBranchId)?.name || 'esta sucursal'}`}
-                        >
-                          <Plus className="w-3.5 h-3.5 inline mr-1" /><span>Surtir Stock</span>
-                        </button>
-                        <div className="flex space-x-2">
-                          <button
-                            onClick={() => handleOpenProductModal(prod)}
-                            className="w-1/2 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl cursor-pointer transition text-center"
-                          >
-                            Editar Art.
-                          </button>
-                          <button
-                            onClick={() => handleDeleteProduct(prod.id)}
-                            className="w-1/2 py-2 hover:bg-purple-50 text-purple-605 text-xs font-bold rounded-xl border border-transparent hover:border-purple-200 cursor-pointer transition text-center"
-                          >
-                            Eliminar
-                          </button>
-                        </div>
+                        {canEditProducts && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => { setQuickStockProduct(prod); setQuickStockAmount(''); }}
+                              className="w-full py-2 mb-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-100 text-emerald-700 text-xs font-black rounded-xl cursor-pointer transition text-center flex items-center justify-center"
+                              title={`Sumar unidades al stock de ${branches.find(b => b.id === selectedBranchId)?.name || 'esta sucursal'}`}
+                            >
+                              <Plus className="w-3.5 h-3.5 inline mr-1" /><span>Surtir Stock</span>
+                            </button>
+                            <div className="flex space-x-2">
+                              <button
+                                onClick={() => handleOpenProductModal(prod)}
+                                className="w-1/2 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl cursor-pointer transition text-center"
+                              >
+                                Editar Art.
+                              </button>
+                              <button
+                                onClick={() => handleDeleteProduct(prod.id)}
+                                className="w-1/2 py-2 hover:bg-purple-50 text-purple-605 text-xs font-bold rounded-xl border border-transparent hover:border-purple-200 cursor-pointer transition text-center"
+                              >
+                                Eliminar
+                              </button>
+                            </div>
+                          </>
+                        )}
                       </div>
                     ) : (
-                      <div className="mt-4 pt-3 border-t border-slate-50 text-center text-[10px] text-slate-400 font-semibold select-none">
-                        ⚙️ Solo Administradores pueden gestionar stock
+                      <div className="mt-4 pt-3 border-t border-slate-50 text-center text-[10px] text-slate-400 font-semibold select-none flex items-center justify-center gap-1">
+                        <Settings className="w-3 h-3" />No tienes permiso para gestionar stock
                       </div>
                     )}
                   </div>
@@ -3865,7 +3896,7 @@ export default function App() {
                           </span>
                         </div>
                       </div>
-                      {activeCompanyRole !== 'employee' && (
+                      {canEditProducts && (
                         <div className="flex items-center gap-1.5 shrink-0">
                           <button
                             type="button"
@@ -3986,9 +4017,10 @@ export default function App() {
                                     setPaymentPrompt(null);
                                   }
                                 }}
+                                aria-label="Confirmar pago"
                                 className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-3 py-1 rounded transition"
                               >
-                                ✓
+                                <Check className="w-3.5 h-3.5" />
                               </button>
                               <button
                                 onClick={() => setPaymentPrompt(null)}
@@ -4010,8 +4042,8 @@ export default function App() {
                           )}
                         </div>
                       ) : (
-                        <span className="text-[10px] text-center bg-emerald-50 text-emerald-700 font-semibold p-1.5 rounded block">
-                          ✓ Cuenta al día
+                        <span className="text-[10px] text-center bg-emerald-50 text-emerald-700 font-semibold p-1.5 rounded flex items-center justify-center gap-1">
+                          <Check className="w-3 h-3" />Cuenta al día
                         </span>
                       )}
 
@@ -4064,8 +4096,8 @@ export default function App() {
                              setEditInitialCashPrompt(false);
                            }
                          }}
-                         className="bg-emerald-500 hover:bg-emerald-600 text-white px-2 py-0.5 text-[10px] rounded font-bold transition shadow-sm"
-                       >✓ Guardar
+                         className="bg-emerald-500 hover:bg-emerald-600 text-white px-2 py-0.5 text-[10px] rounded font-bold transition shadow-sm flex items-center gap-1"
+                       ><Check className="w-3 h-3" />Guardar
                        </button>
                        <button
                          onClick={() => setEditInitialCashPrompt(false)}
@@ -4146,7 +4178,7 @@ export default function App() {
                 <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
                   cashRegister.isOpen ? 'bg-emerald-100 text-emerald-850 border border-emerald-250' : 'bg-rose-105 text-rose-800 border border-rose-250 animate-pulse'
                 }`}>
-                  Estado: {cashRegister.isOpen ? 'Caja Abierta ✓' : 'Caja Cerrada ✗'}
+                  Estado: {cashRegister.isOpen ? 'Caja Abierta' : 'Caja Cerrada'}
                 </span>
                 {cashRegister.isOpen ? (
                   <button
@@ -4157,7 +4189,7 @@ export default function App() {
                     }}
                     className="w-full sm:w-auto px-6 py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-extrabold text-xs rounded-xl shadow cursor-pointer transition uppercase tracking-wider"
                   >
-                    Corte de Caja (Cierre de Turno) 📝
+                    Corte de Caja (Cierre de Turno)
                   </button>
                 ) : (
                   <button
@@ -4168,7 +4200,7 @@ export default function App() {
                     }}
                     className="w-full sm:w-auto px-6 py-3 bg-gradient-to-r from-indigo-600 to-indigo-750 hover:from-indigo-700 hover:to-indigo-800 text-white font-extrabold text-xs rounded-xl shadow cursor-pointer transition uppercase tracking-wider animate-pulse"
                   >
-                    Realizar Apertura de Caja 🚀
+                    Realizar Apertura de Caja
                   </button>
                 )}
               </div>
@@ -4335,9 +4367,9 @@ export default function App() {
                                     setLastCompletedSale(sale);
                                     setLastReceivedAmount(0); // non-cash popup
                                   }}
-                                  className="px-3 py-1 text-[10px] font-black bg-indigo-50 border border-indigo-150 hover:bg-indigo-600 hover:text-white rounded text-indigo-600 transition cursor-pointer"
+                                  className="px-3 py-1 text-[10px] font-black bg-indigo-50 border border-indigo-150 hover:bg-indigo-600 hover:text-white rounded text-indigo-600 transition cursor-pointer flex items-center gap-1"
                                 >
-                                  📥 Compartir / Recibo
+                                  <Download className="w-3 h-3" />Compartir / Recibo
                                 </button>
                               </div>
                             </div>
@@ -4375,7 +4407,7 @@ export default function App() {
                                     ? 'bg-sky-50 text-sky-600'
                                     : 'bg-rose-50 text-rose-600'
                                 }`}>
-                                  {tx.type === 'Venta' ? '🧾' : tx.type === 'Ingreso' ? '📥' : isTransfer ? '🔄' : '📤'}
+                                  {tx.type === 'Venta' ? <Receipt className="w-4 h-4" /> : tx.type === 'Ingreso' ? <ArrowDownCircle className="w-4 h-4" /> : isTransfer ? <RefreshCw className="w-4 h-4" /> : <ArrowUpCircle className="w-4 h-4" />}
                                 </span>
                                 <div>
                                   <p className="text-xs font-bold text-slate-805">{tx.description}</p>
@@ -4411,7 +4443,7 @@ export default function App() {
                       {branchScopedStockMovements.map(mv => {
                         const isIn = mv.type === 'surtido' || mv.type === 'transfer_in';
                         const typeLabel = mv.type === 'surtido' ? 'Surtido' : mv.type === 'merma' ? 'Merma / Ajuste' : mv.type === 'transfer_in' ? 'Traspaso (entrada)' : 'Traspaso (salida)';
-                        const icon = mv.type === 'surtido' ? '📥' : mv.type === 'merma' ? '📉' : '🔄';
+                        const icon = mv.type === 'surtido' ? <ArrowDownCircle className="w-4 h-4" /> : mv.type === 'merma' ? <TrendingDown className="w-4 h-4" /> : <RefreshCw className="w-4 h-4" />;
                         return (
                           <div key={mv.id} className="flex justify-between items-center border border-slate-100 rounded-xl p-3 bg-white hover:bg-slate-50/50 transition duration-150">
                             <div className="flex items-center space-x-3 text-left min-w-0">
@@ -4458,8 +4490,8 @@ export default function App() {
                 </div>
 
                 <div className="p-4 bg-slate-50 rounded-2xl border text-left max-w-md mx-auto">
-                  <p className="text-xs text-slate-500 leading-relaxed text-center font-medium">
-                    ⚙️ Si necesitas acceso para reabastecimientos, reportajes o auditorías, por favor solicita a tu Administrador o Propietario que actualice tus privilegios de acceso desde la pestaña de <strong>Mi Empresa / Equipo</strong>.
+                  <p className="text-xs text-slate-500 leading-relaxed text-center font-medium flex items-start gap-1.5">
+                    <Settings className="w-3.5 h-3.5 shrink-0 mt-0.5" />Si necesitas acceso para reabastecimientos, reportajes o auditorías, por favor solicita a tu Administrador o Propietario que actualice tus privilegios de acceso desde la pestaña de <strong>Mi Empresa / Equipo</strong>.
                   </p>
                 </div>
               </div>
@@ -4585,7 +4617,7 @@ export default function App() {
                   </div>
 
                   {stats.lowStockItems.length === 0 ? (
-                    <p className="text-xs text-slate-500 font-semibold py-8 text-center">✓ El almacén está perfectamente abastecido de mercancías.</p>
+                    <p className="text-xs text-slate-500 font-semibold py-8 text-center flex items-center justify-center gap-1.5"><Check className="w-4 h-4" />El almacén está perfectamente abastecido de mercancías.</p>
                   ) : (
                     <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
                       {stats.lowStockItems.map(p => (
@@ -4747,8 +4779,8 @@ export default function App() {
                             </button>
                           </div>
                         ) : (
-                          <span className="text-[9px] text-slate-400 font-bold select-none py-1">
-                            🛡️ Solo Admins
+                          <span className="text-[9px] text-slate-400 font-bold select-none py-1 flex items-center gap-1">
+                            <ShieldCheck className="w-3 h-3" />Solo Admins
                           </span>
                         )}
                       </div>
@@ -4885,8 +4917,8 @@ export default function App() {
                             </button>
                           </div>
                         ) : (
-                          <span className="text-[9px] text-slate-400 font-bold select-none py-1">
-                            🛡️ Solo Admins
+                          <span className="text-[9px] text-slate-400 font-bold select-none py-1 flex items-center gap-1">
+                            <ShieldCheck className="w-3 h-3" />Solo Admins
                           </span>
                         )}
                       </div>
@@ -4918,7 +4950,7 @@ export default function App() {
                   >
                     <option value="all">Ver Todas</option>
                     <option value="pending">Solo Pendientes</option>
-                    <option value="completed">Realizadas ✓</option>
+                    <option value="completed">Realizadas</option>
                   </select>
                 </div>
               </div>
@@ -4974,8 +5006,8 @@ export default function App() {
                     No hay facturas que coincidan con tu búsqueda.<br/>
                     Aquí aparecerán las ventas marcadas para facturar.
                   </p>
-                  <div className="text-[11px] bg-amber-50 text-amber-700 px-4 py-3 rounded-xl border border-amber-200 mt-4 font-bold max-w-md shadow-sm">
-                    🚧 El proceso de timbrado CFDI (facturación) requerirá registrar las credenciales y certificados (CSD) del SAT en la configuración avanzada. Esta es la pre-vista del módulo de control interno.
+                  <div className="text-[11px] bg-amber-50 text-amber-700 px-4 py-3 rounded-xl border border-amber-200 mt-4 font-bold max-w-md shadow-sm flex items-start gap-1.5">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />El proceso de timbrado CFDI (facturación) requerirá registrar las credenciales y certificados (CSD) del SAT en la configuración avanzada. Esta es la pre-vista del módulo de control interno.
                   </div>
                 </div>
               )}
@@ -5016,15 +5048,15 @@ export default function App() {
                   </h4>
                   <ul className="text-[11px] sm:text-xs text-slate-600 space-y-2.5 pl-1">
                     <li className="flex items-start gap-1.5">
-                      <span className="text-indigo-600 font-bold">✓</span>
+                      <span className="text-indigo-600 font-bold"><Check className="w-3.5 h-3.5" /></span>
                       <span><strong>Multi-Sucursal</strong>: Configura sucursales físicas y asigna inventario de catálogo independiente de sucursales.</span>
                     </li>
                     <li className="flex items-start gap-1.5">
-                      <span className="text-indigo-600 font-bold">✓</span>
-                      <span><strong>Control de Roles</strong>: Propietario (dueño general), Administrador (edición/inventario), Empleado (ventas POS únicamente).</span>
+                      <span className="text-indigo-600 font-bold"><Check className="w-3.5 h-3.5" /></span>
+                      <span><strong>Control de Roles</strong>: Propietario (dueño general), Administrador (edición/inventario), Cajero (caja e inventario limitado), Mesero (mesas y comandas).</span>
                     </li>
                     <li className="flex items-start gap-1.5">
-                      <span className="text-indigo-600 font-bold">✓</span>
+                      <span className="text-indigo-600 font-bold"><Check className="w-3.5 h-3.5" /></span>
                       <span><strong>Acceso con Código</strong>: Genera códigos únicos estilo invitación para que tus colaboradores entren con un clic.</span>
                     </li>
                   </ul>
@@ -5033,8 +5065,8 @@ export default function App() {
                 <div className="flex flex-col sm:flex-row justify-center gap-3 pt-2">
                   {/* `user` is always set here — the login gate already returned early otherwise. */}
                   <div className="space-y-4 w-full">
-                    <p className="text-xs text-amber-600 font-semibold bg-amber-50 rounded-lg p-2.5 inline-block">
-                      ⚠️ Estás conectado como {user.email} pero no tienes ninguna Empresa activa.
+                    <p className="text-xs text-amber-600 font-semibold bg-amber-50 rounded-lg p-2.5 inline-flex items-center gap-1.5">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />Estás conectado como {user.email} pero no tienes ninguna Empresa activa.
                     </p>
                     <button
                       onClick={() => {
@@ -5276,9 +5308,10 @@ export default function App() {
                            }
                            setNewCatPrompt(false);
                          }}
+                         aria-label="Confirmar categoría"
                          className="bg-indigo-600 text-white px-3 py-2 rounded-lg font-bold text-xs hover:bg-indigo-700"
                        >
-                         ✓
+                         <Check className="w-3.5 h-3.5" />
                        </button>
                        <button
                          type="button"
@@ -5290,7 +5323,7 @@ export default function App() {
                     </div>
                   ) : (
                     <select
-                      value={prodForm.category || 'Generales'}
+                      value={prodForm.category || DEFAULT_PRODUCT_CATEGORY}
                       onChange={e => {
                         if (e.target.value === '__new__') {
                           setNewCatName('');
@@ -5391,8 +5424,8 @@ export default function App() {
                       className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg p-2.5 outline-none focus:border-indigo-500 font-semibold text-slate-700"
                     >
                       <option value="ninguno">Ninguno (No imprime comanda)</option>
-                      <option value="cocina">🍳 Cocina (Estación de cocina)</option>
-                      <option value="barra">🍹 Barra (Estación de barra / bebidas)</option>
+                      <option value="cocina">Cocina (Estación de cocina)</option>
+                      <option value="barra">Barra (Estación de barra / bebidas)</option>
                     </select>
                   </div>
                 )}
@@ -5517,7 +5550,7 @@ export default function App() {
                   <option value="">Selecciona un producto...</option>
                   {products.map(p => (
                     <option key={p.id} value={p.id}>
-                      {p.name} (Stock Global: {p.stock} u. | {p.category || 'Sin Cat'})
+                      {p.name} (Stock Global: {p.stock} u. | {p.category || DEFAULT_PRODUCT_CATEGORY})
                     </option>
                   ))}
                 </select>
@@ -5558,8 +5591,8 @@ export default function App() {
               </div>
 
               {transferProductId && transferSourceBranchId && (
-                <div className="bg-slate-50 border border-slate-100 p-3 rounded-xl text-left text-xs font-bold text-slate-600">
-                  📈 Existencia actual en Sucursal de Origen:{' '}
+                <div className="bg-slate-50 border border-slate-100 p-3 rounded-xl text-left text-xs font-bold text-slate-600 flex items-start gap-1">
+                  <TrendingUp className="w-3.5 h-3.5 shrink-0 mt-0.5" />Existencia actual en Sucursal de Origen:{' '}
                   <span className="text-indigo-600 font-extrabold">
                     {(() => {
                       const p = products.find(prod => prod.id === transferProductId);
@@ -5687,7 +5720,7 @@ export default function App() {
                       className="w-4 h-4 text-teal-600 focus:ring-teal-500 border-slate-300 rounded cursor-pointer mt-0.5"
                     />
                     <div>
-                      <label htmlFor="branch-is-matriz" className="text-slate-800 font-extrabold cursor-pointer block text-xs">Definir como Matriz Principal 🏢</label>
+                      <label htmlFor="branch-is-matriz" className="text-slate-800 font-extrabold cursor-pointer flex items-center gap-1 text-xs"><Building2 className="w-3.5 h-3.5" />Definir como Matriz Principal</label>
                       <span className="text-[10px] text-slate-500 leading-tight block font-normal">Fabrica materia prima, almacena el inventario central y permite repartir stock a otras sucursales.</span>
                     </div>
                   </div>
@@ -6018,7 +6051,7 @@ export default function App() {
             <div className="space-y-4 text-xs">
               {/* Form to add a new category */}
               <div className="p-3 bg-indigo-50/50 border border-indigo-100 rounded-xl space-y-2">
-                <label className="text-indigo-800 font-extrabold block">Crear Nueva Categoría 🏷️</label>
+                <label className="text-indigo-800 font-extrabold block">Crear Nueva Categoría</label>
                 <div className="flex gap-2">
                   <input
                     type="text"
@@ -6082,7 +6115,7 @@ export default function App() {
               <X className="w-4 h-4" />
             </button>
             <div className="text-center space-y-1">
-              <span className="inline-block p-3 bg-indigo-50 border border-indigo-100 rounded-full text-indigo-600 text-2xl animate-bounce">🎉</span>
+              <span className="inline-block p-3 bg-indigo-50 border border-indigo-100 rounded-full text-indigo-600 animate-bounce"><Check className="w-6 h-6" /></span>
               <h3 className="font-extrabold text-xl text-slate-800">¡Venta Registrada!</h3>
               <p className="text-[11px] text-slate-400 font-bold uppercase tracking-wider">Ticket {lastCompletedSale.id}</p>
               {lastCompletedSale.employeeName && (
@@ -6168,14 +6201,14 @@ export default function App() {
                     text += `*Impuestos:* ${formatMXN(lastCompletedSale.tax)}\n`;
                     text += `*Total Neto:* *${formatMXN(lastCompletedSale.total)}*\n`;
                     text += `=========================\n`;
-                    text += `¡Gracias por su compra! 😃\n`;
+                    text += `¡Gracias por su compra!\n`;
                     return `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
                   })()}
                   target="_blank"
                   rel="noreferrer"
                   className="p-2.5 bg-emerald-50 hover:bg-emerald-100/80 border border-emerald-200 text-emerald-800 rounded-xl flex items-center justify-center gap-1.5 cursor-pointer text-center duration-155"
                 >
-                  💬 WhatsApp
+                  <MessageCircle className="w-3.5 h-3.5" />WhatsApp
                 </a>
 
                 <a
@@ -6194,7 +6227,7 @@ export default function App() {
                   })()}
                   className="p-2.5 bg-sky-50 hover:bg-sky-100/80 border border-sky-200 text-sky-800 rounded-xl flex items-center justify-center gap-1.5 cursor-pointer text-center duration-155"
                 >
-                  ✉️ Correo
+                  <Mail className="w-3.5 h-3.5" />Correo
                 </a>
               </div>
 
@@ -6296,7 +6329,7 @@ export default function App() {
                 }}
                 className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl shadow cursor-pointer transition"
               >
-                Proceder y Cerrar Caja 📝
+                Proceder y Cerrar Caja
               </button>
             </div>
           </div>
@@ -6307,18 +6340,25 @@ export default function App() {
       {isOpeningCajaModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-sm p-6 space-y-4">
-            <div className="pb-2 border-b">
+            <div className="flex justify-between items-center pb-2 border-b">
               <h3 className="font-extrabold text-lg text-slate-800 flex items-center">
                 <Store className="w-5 h-5 mr-2 text-indigo-600 animate-pulse" />
                 Apertura de Turno y Caja
               </h3>
-              <p className="text-[10px] text-slate-400 mt-0.5">Define el monto inicial en efectivo para iniciar las operaciones del día.</p>
+              <button
+                onClick={() => setIsOpeningCajaModalOpen(false)}
+                aria-label="Cerrar"
+                className="p-1.5 text-slate-400 hover:text-slate-700 bg-slate-50 hover:bg-slate-100 rounded-full cursor-pointer transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
+            <p className="text-[10px] text-slate-400 -mt-2">Define el monto inicial en efectivo para iniciar las operaciones del día.</p>
 
             <div className="space-y-3.5 text-xs font-semibold text-slate-700">
               <div className="space-y-1">
                 <label className="text-slate-600 font-extrabold block">Saldo Inicial de Apertura ($ MXN) *</label>
-                <input 
+                <input
                   type="number"
                   placeholder="Ej: 500.00"
                   step="0.01"
@@ -6329,8 +6369,15 @@ export default function App() {
               </div>
             </div>
 
-            <div className="pt-3 border-t text-xs font-bold w-full">
-              <button 
+            <div className="pt-3 border-t text-xs font-bold w-full flex gap-2">
+              <button
+                type="button"
+                onClick={() => setIsOpeningCajaModalOpen(false)}
+                className="px-4 py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl cursor-pointer transition"
+              >
+                Ahora No
+              </button>
+              <button
                 type="button"
                 onClick={() => {
                   const val = parseFloat(openingCashInput);
@@ -6340,9 +6387,9 @@ export default function App() {
                   }
                   handleOpenCaja(val);
                 }}
-                className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow cursor-pointer transition text-center"
+                className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow cursor-pointer transition text-center"
               >
-                Abrir Caja Registradora 🚀
+                Abrir Caja Registradora
               </button>
             </div>
           </div>

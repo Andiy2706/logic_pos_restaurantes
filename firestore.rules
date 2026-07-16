@@ -317,7 +317,7 @@ service cloud.firestore {
       // Suppliers subcollection inside Company
       match /suppliers/{supplierId} {
         allow list, get: if isSignedIn() && isMemberOfCompany(companyId);
-        allow create, update, delete: if isVerifiedUser() && isOwnerOrAdmin(companyId) && isValidId(supplierId) &&
+        allow create, update, delete: if isVerifiedUser() && (isOwnerOrAdmin(companyId) || hasPermission(companyId, 'suppliers_restock')) && isValidId(supplierId) &&
           (request.method == 'delete' || (isValidSupplier(incoming()) && incoming().id == supplierId));
       }
 

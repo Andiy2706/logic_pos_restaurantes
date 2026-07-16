@@ -101,7 +101,6 @@ docs/PLAN_RESTAURANTE.md
 docs/PROGRESO_DEV_RESTAURANTES.md
 docs/DISTRIBUCION_TAREAS.md
 docs/CONTEXTO_SESION.md
-scripts/load-tamales-castillo.mjs
 
 # Binario compilado del APK (artefacto de build, no codigo fuente)
 logic-pos.apk

@@ -1,14 +1,16 @@
 import React, { useState, useMemo } from 'react';
-import { 
-  X, Plus, Minus, Trash2, Send, DollarSign, Search, 
+import {
+  X, Plus, Minus, Trash2, Send, DollarSign, Search,
   Clock, User, Users, ShieldAlert, CreditCard, ChevronRight,
-  ArrowLeft, Check, Ticket, HelpCircle
+  ArrowLeft, Check, Ticket, HelpCircle, Lock, AlertCircle,
+  Banknote, Smartphone, Handshake
 } from 'lucide-react';
 import { doc, updateDoc, writeBatch } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { Capacitor } from '@capacitor/core';
 import { printEscPosOverNetwork } from '../lib/networkPrinter';
 import { buildComandaTicket, columnsForPaperWidth } from '../lib/escpos';
+import { formatMXN } from '../lib/format';
 
 interface Product {
   id: string;
@@ -86,13 +88,9 @@ interface ComandaViewProps {
   user: any;
   buildAndCommitSale: (params: any) => any;
   onClose: () => void;
+  onSaleComplete: (sale: any) => void;
   printConfig?: PrintConfig;
 }
-
-const formatMXN = (val: number): string => {
-  if (isNaN(val) || val === undefined || val === null) return '$0.00 MXN';
-  return `$${val.toFixed(2)} MXN`;
-};
 
 const getProductStock = (prod: Product, branchId: string): number => {
   if (!prod.branchStocks) return prod.stock;
@@ -110,6 +108,7 @@ export default function ComandaView({
   user,
   buildAndCommitSale,
   onClose,
+  onSaleComplete,
   printConfig
 }: ComandaViewProps) {
   // Navigation & Search State
@@ -462,8 +461,8 @@ export default function ComandaView({
 
       await batch.commit();
 
-      alert(`¡Mesa cobrada exitosamente! Venta registrada con folio ${newSale.id}.`);
       setIsCheckoutOpen(false);
+      onSaleComplete(newSale);
       onClose();
     } catch (err: any) {
       console.error(err);
@@ -495,7 +494,7 @@ export default function ComandaView({
           </div>
           {order && (
             <span className="text-[9px] font-black uppercase py-1 px-2.5 bg-indigo-50 border border-indigo-150 text-indigo-700 dark:bg-indigo-950/40 dark:border-indigo-900/50 dark:text-indigo-300 rounded-xl">
-              🕒 {elapsedMinutes} min
+              <Clock className="w-2.5 h-2.5 inline mr-0.5" />{elapsedMinutes} min
             </span>
           )}
         </div>
@@ -514,7 +513,7 @@ export default function ComandaView({
               onClick={handleOpenTable}
               className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow-md transition cursor-pointer uppercase tracking-wider active:scale-95"
             >
-              🚀 Abrir Mesa / Tomar Orden
+              Abrir Mesa / Tomar Orden
             </button>
           </div>
         ) : (
@@ -598,7 +597,7 @@ export default function ComandaView({
                             Ronda #{rNum} (Enviada)
                           </h4>
                           <span className="text-[9px] text-slate-450 dark:text-slate-400 font-bold flex items-center gap-1">
-                            🔒 Listo / En Preparación
+                            <Lock className="w-2.5 h-2.5" />Listo / En Preparación
                           </span>
                         </div>
                         <div className="space-y-1">
@@ -657,7 +656,7 @@ export default function ComandaView({
               {order.status === 'closed' ? (
                 <div className="p-3 bg-slate-100 dark:bg-slate-800 rounded-xl text-center border border-slate-200 dark:border-slate-700">
                   <span className="text-xs font-black uppercase text-slate-500 dark:text-slate-400 flex items-center justify-center gap-1.5">
-                    🎉 Comanda Cerrada & Cobrada
+                    <Check className="w-4 h-4" />Comanda Cerrada & Cobrada
                   </span>
                 </div>
               ) : order.items.length > 0 ? (
@@ -671,12 +670,12 @@ export default function ComandaView({
                       }
                       setIsCheckoutOpen(true);
                     }}
-                    className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow-md transition cursor-pointer text-center uppercase tracking-wider active:scale-95"
+                    className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow-md transition cursor-pointer text-center uppercase tracking-wider active:scale-95 flex items-center justify-center gap-1.5"
                   >
-                    💰 Cobrar Cuenta
+                    <DollarSign className="w-4 h-4" />Cobrar Cuenta
                   </button>
                 </div>
-              ) : (
+              ) : currentUserMember?.role !== 'mesero' ? (
                 <button
                   type="button"
                   onClick={async () => {
@@ -706,7 +705,7 @@ export default function ComandaView({
                 >
                   Liberar Mesa Sin Consumo
                 </button>
-              )}
+              ) : null}
             </div>
           </div>
         )}
@@ -820,11 +819,12 @@ export default function ComandaView({
                 </h3>
                 <p className="text-[10px] text-slate-450 font-bold uppercase mt-0.5">Folio Comanda: {order.id}</p>
               </div>
-              <button 
-                onClick={() => setIsCheckoutOpen(false)} 
+              <button
+                onClick={() => setIsCheckoutOpen(false)}
+                aria-label="Cerrar"
                 className="text-slate-400 hover:text-slate-600 dark:hover:text-white font-extrabold text-sm"
               >
-                ✕
+                <X className="w-4 h-4" />
               </button>
             </div>
 
@@ -839,10 +839,10 @@ export default function ComandaView({
                   <span className="text-[10px] font-black uppercase text-slate-405 tracking-wider block">Método de Pago</span>
                   <div className="grid grid-cols-2 gap-2">
                     {([
-                      { id: 'Cash', label: '💸 Efectivo' },
-                      { id: 'Card', label: '💳 Tarjeta' },
-                      { id: 'Transfer', label: '📲 Transf.' },
-                      { id: 'Credit', label: '🤝 Crédito / Fiado' }
+                      { id: 'Cash', label: 'Efectivo', icon: Banknote },
+                      { id: 'Card', label: 'Tarjeta', icon: CreditCard },
+                      { id: 'Transfer', label: 'Transf.', icon: Smartphone },
+                      { id: 'Credit', label: 'Crédito / Fiado', icon: Handshake }
                     ] as const).map(method => (
                       <button
                         key={method.id}
@@ -850,12 +850,13 @@ export default function ComandaView({
                           setPaymentMethod(method.id);
                           if (method.id !== 'Credit') setSelectedCustomer(null);
                         }}
-                        className={`p-3 rounded-xl border-2 text-xs font-black text-center cursor-pointer transition select-none active:scale-95 ${
+                        className={`p-3 rounded-xl border-2 text-xs font-black text-center cursor-pointer transition select-none active:scale-95 flex flex-col items-center gap-1 ${
                           paymentMethod === method.id
                             ? 'border-[var(--brand-primary,#6366f1)] bg-indigo-50/50 dark:bg-indigo-950/20 text-[var(--brand-primary,#6366f1)]'
                             : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-650 dark:text-slate-300'
                         }`}
                       >
+                        <method.icon className="w-4 h-4" />
                         {method.label}
                       </button>
                     ))}
@@ -1043,7 +1044,7 @@ export default function ComandaView({
                 onClick={handleConfirmCheckout}
                 className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 active:scale-[0.99] text-white text-xs font-black uppercase rounded-xl transition cursor-pointer shadow-md flex items-center gap-1.5"
               >
-                {isSubmittingCheckout ? 'Procesando...' : 'Confirmar y Cobrar Cuenta 💳'}
+                {isSubmittingCheckout ? 'Procesando...' : (<><CreditCard className="w-4 h-4" />Confirmar y Cobrar Cuenta</>)}
               </button>
             </div>
 
@@ -1057,7 +1058,7 @@ export default function ComandaView({
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 w-full max-w-sm shadow-2xl animate-in fade-in zoom-in-95 duration-150 text-slate-800 dark:text-slate-100">
             <div className="text-center space-y-4">
               <div className="w-12 h-12 bg-rose-50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 rounded-full flex items-center justify-center mx-auto border border-rose-100 dark:border-rose-900/50 text-xl font-bold">
-                ⚠️
+                <AlertCircle className="w-6 h-6" />
               </div>
               <div className="space-y-1">
                 <h4 className="text-sm font-black text-slate-800 dark:text-white uppercase tracking-wide">

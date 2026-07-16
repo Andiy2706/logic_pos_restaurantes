@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import TablesFloorView from './TablesFloorView';
 import ComandaView from './ComandaView';
+import { formatMXN } from '../lib/format';
 
 interface Product {
   id: string;
@@ -35,6 +36,7 @@ interface Customer {
 interface Branch {
   id: string;
   name: string;
+  zones?: string[];
 }
 
 interface Table {
@@ -85,16 +87,13 @@ interface WaiterShellProps {
   branding: any;
   onLogout: () => void;
   buildAndCommitSale: (params: any) => any;
+  onSaleComplete: (sale: any) => void;
   userAvailableCompanies?: any;
   onSwitchCompany?: (companyId: string) => void;
   onLeaveCompany?: () => void;
   printConfig?: any;
 }
 
-const formatMXN = (val: number): string => {
-  if (isNaN(val) || val === undefined || val === null) return '$0.00 MXN';
-  return `$${val.toFixed(2)} MXN`;
-};
 
 export default function WaiterShell({
   user,
@@ -110,6 +109,7 @@ export default function WaiterShell({
   branding,
   onLogout,
   buildAndCommitSale,
+  onSaleComplete,
   userAvailableCompanies = {},
   onSwitchCompany,
   onLeaveCompany,
@@ -211,7 +211,7 @@ export default function WaiterShell({
         <div className="flex items-center space-x-2">
           <div className="hidden sm:flex flex-col text-right mr-1">
             <span className="text-xs font-black text-white">{currentUserMember?.name || user.displayName || 'Mesero'}</span>
-            <span className="text-[9px] text-amber-500 font-extrabold uppercase tracking-widest">🍽️ Mesero</span>
+            <span className="text-[9px] text-amber-500 font-extrabold uppercase tracking-widest flex items-center gap-1"><Utensils className="w-2.5 h-2.5" />Mesero</span>
           </div>
           
           {/* Theme Toggle Button */}
@@ -307,6 +307,7 @@ export default function WaiterShell({
                 setSelectedTable(null);
                 setIsManagingOrder(false);
               }}
+              onSaleComplete={onSaleComplete}
               printConfig={printConfig}
             />
           ) : (
@@ -322,6 +323,7 @@ export default function WaiterShell({
                 setSelectedTable(table);
                 setIsManagingOrder(true);
               }}
+              branchZones={branches.find(b => b.id === selectedBranchId)?.zones || ['Principal', 'Terraza', 'Bar/VIP']}
             />
           )
         )}
@@ -433,7 +435,7 @@ export default function WaiterShell({
                               ? 'bg-indigo-50 border-indigo-250 text-indigo-800 dark:bg-indigo-950/30 dark:border-indigo-900/50 dark:text-indigo-400'
                               : 'bg-emerald-50 border-emerald-250 text-emerald-800 dark:bg-emerald-950/30 dark:border-emerald-900/50 dark:text-emerald-450'
                           }`}>
-                            🕒 {timeStr}
+                            <Clock className="w-3 h-3 inline mr-0.5" />{timeStr}
                           </span>
                         </div>
 

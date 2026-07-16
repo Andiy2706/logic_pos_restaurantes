@@ -1,6 +1,5 @@
 {
-  "name": "LOGIC POS",
-  "description": "Un completo sistema de punto de venta inteligente y moderno con gestión de inventario, ventas, clientes e Inteligencia Artificial.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "name": "LOGIC POS Restaurantes",
+  "description": "Sistema de punto de venta especializado para restaurantes: mesas, comandas por rondas, roles de Mesero/Cajero/Administrador, impresión dividida a Cocina/Barra e inventario multisucursal.",
+  "requestFramePermissions": []
 }

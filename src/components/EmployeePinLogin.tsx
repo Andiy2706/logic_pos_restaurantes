@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Delete, Lock, User, Eye, EyeOff, ShieldCheck, ChevronLeft } from 'lucide-react';
+import { Delete, Lock, User, Eye, EyeOff, ShieldCheck, ChevronLeft, AlertCircle } from 'lucide-react';
+import { EMPLOYEE_NUMBER_MIN_LENGTH, EMPLOYEE_NUMBER_MAX_LENGTH } from '../lib/constants';
 
 interface EmployeePinLoginProps {
   onPinSubmit?: (pin: string) => void;
@@ -20,8 +21,8 @@ export default function EmployeePinLogin({
   // CompanySettingsView.handleCreateCredentialEmployee) — length varies, so we
   // can't auto-submit at a fixed count like a real PIN. minPinLength gates the
   // submit button; maxPinLength is just a sane input cap.
-  const minPinLength = 6;
-  const maxPinLength = 12;
+  const minPinLength = EMPLOYEE_NUMBER_MIN_LENGTH;
+  const maxPinLength = EMPLOYEE_NUMBER_MAX_LENGTH;
 
   const handleKeyPress = (num: string) => {
     setPin(prev => prev.length < maxPinLength ? prev + num : prev);
@@ -172,8 +173,8 @@ export default function EmployeePinLogin({
           {/* Error Message */}
           {errorMessage && (
             <div className="p-2.5 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/30 rounded-xl text-left animate-shake">
-              <p className="text-[10px] text-red-600 dark:text-red-400 font-bold leading-normal text-center">
-                ⚠️ {errorMessage}
+              <p className="text-[10px] text-red-600 dark:text-red-400 font-bold leading-normal text-center flex items-center justify-center gap-1">
+                <AlertCircle className="w-3 h-3 shrink-0" />{errorMessage}
               </p>
             </div>
           )}

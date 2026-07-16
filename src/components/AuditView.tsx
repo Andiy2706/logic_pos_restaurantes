@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { ShieldCheck, Filter, Receipt, ClipboardList, Wallet } from 'lucide-react';
+import { formatMXN } from '../lib/format';
 
 // Local, minimal copies of the shared shapes this view reads — same convention already used
 // by CompanySettingsView.tsx (each component declares only the fields it actually needs).
@@ -82,10 +83,6 @@ interface AuditViewProps {
   members: Member[];
 }
 
-const formatMXN = (val: number): string => {
-  if (isNaN(val) || val === undefined || val === null) return '$0.00 MXN';
-  return `$${val.toFixed(2)} MXN`;
-};
 
 const orderTotal = (order: Order, salesById: Map<string, Sale>): number => {
   // Prefer the linked Sale's total (reflects discount/tax actually charged); fall back to

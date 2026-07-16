@@ -34,10 +34,10 @@ export default function CompanySelector({
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleDeleteClick = async (id: string, name: string) => {
-    const firstConfirm = window.confirm(`⚠️ ADVERTENCIA ⚠️\n¿Estás seguro de que deseas eliminar permanentemente la empresa "${name}"? Esta acción borrará de manera irreversible todos los productos, registros de inventario, ventas y cierres de caja.`);
+    const firstConfirm = window.confirm(`ADVERTENCIA\n¿Estás seguro de que deseas eliminar permanentemente la empresa "${name}"? Esta acción borrará de manera irreversible todos los productos, registros de inventario, ventas y cierres de caja.`);
     if (!firstConfirm) return;
 
-    const secondConfirm = window.confirm(`⏳ CONFIRMACIÓN CRÍTICA SEGUNDA SEPARADA ⏳\nLa eliminación de "${name}" es definitiva y no tiene retorno. ¿Aceptas continuar con la eliminación completa de todos los datos en la nube?`);
+    const secondConfirm = window.confirm(`CONFIRMACIÓN CRÍTICA SEGUNDA SEPARADA\nLa eliminación de "${name}" es definitiva y no tiene retorno. ¿Aceptas continuar con la eliminación completa de todos los datos en la nube?`);
     if (!secondConfirm) return;
 
     if (onDeleteCompany) {
@@ -205,11 +205,6 @@ export default function CompanySelector({
                   required
                   disabled={isSubmitting}
                 />
-              </div>
-              <div className="p-3 bg-indigo-950/20 border border-indigo-900/40 rounded-xl text-left">
-                <p className="text-[11px] text-indigo-300 leading-relaxed">
-                  <strong>Paso de Inicialización Automática:</strong> Al crear tu empresa, LOGIC POS importará automáticamente la base de datos de productos por defecto para que puedas comenzar a operar sin demoras.
-                </p>
               </div>
               <button
                 type="submit"
