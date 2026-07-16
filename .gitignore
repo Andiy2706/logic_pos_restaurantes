@@ -75,6 +75,11 @@ android/app/.cxx
 android/app/build
 android/local.properties
 
+# Release signing - never commit the keystore or its passwords
+android/keystore.properties
+android/app/*.keystore
+android/app/*.jks
+
 # Build output
 dist/
 
