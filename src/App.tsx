@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, FormEvent } from 'react';
-import { 
+import {
   ShoppingCart,
   Package,
   Users,
@@ -7,9 +7,7 @@ import {
   Receipt,
   Sparkles,
   Plus,
-  Minus,
   Trash2,
-  Search,
   Percent,
   CircleDollarSign,
   Check,
@@ -22,9 +20,6 @@ import {
   ShieldCheck,
   TrendingUp,
   X,
-  Filter,
-  DollarSign,
-  Tag,
   Briefcase,
   Layers,
   Store,
@@ -192,11 +187,6 @@ interface Customer {
   email: string;
   unpaidBalance: number; // For "Fiado" (Credit)
   registeredDate: string;
-}
-
-interface CartItem {
-  product: Product;
-  quantity: number;
 }
 
 interface SaleItem {
@@ -425,7 +415,7 @@ export const getAvailableMonths = (allSales: Sale[]): string[] => {
 
 export default function App() {
   // Tabs: 'pos' | 'products' | 'customers' | 'tables' | 'history' | 'analytics' | 'branches' | 'suppliers' | 'settings' | 'invoicing'
-  const [activeTab, setActiveTab] = useState<'pos' | 'products' | 'customers' | 'tables' | 'history' | 'analytics' | 'branches' | 'suppliers' | 'settings' | 'invoicing' | 'audit'>('pos');
+  const [activeTab, setActiveTab] = useState<'products' | 'customers' | 'tables' | 'history' | 'analytics' | 'branches' | 'suppliers' | 'settings' | 'invoicing' | 'audit'>('tables');
   const [branding, setBranding] = useState<Branding>({});
 
   const [themeMode, setThemeMode] = useState<'light' | 'dark'>(() => {
@@ -616,16 +606,9 @@ export default function App() {
     `;
   }, [branding]);
 
-  const [posSubTab, setPosSubTab] = useState<'catalog' | 'history' | 'cashier'>('catalog');
   // Inventory display preference (cards vs compact list), remembered across sessions.
   const [inventoryView, setInventoryView] = useState<'grid' | 'list'>(() =>
     (localStorage.getItem('logic_inventory_view') as 'grid' | 'list') || 'grid'
-  );
-  // Same idea for the Terminal POS catalog — kept as its own preference (not shared with
-  // Inventario) since each row needs different actions: quick add-to-cart here vs. edit/
-  // delete/surtir there. List mode packs many more products on screen without scrolling.
-  const [posCatalogView, setPosCatalogView] = useState<'grid' | 'list'>(() =>
-    (localStorage.getItem('logic_pos_catalog_view') as 'grid' | 'list') || 'grid'
   );
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [nowStr, setNowStr] = useState(() => {
@@ -748,7 +731,6 @@ export default function App() {
   const [currentUserMember, setCurrentUserMember] = useState<any | null>(null);
   const [dashboardSelectedTable, setDashboardSelectedTable] = useState<Table | null>(null);
   const [dashboardIsManagingOrder, setDashboardIsManagingOrder] = useState<boolean>(false);
-  const [folioNumber, setFolioNumber] = useState('');
 
   // Hard States
   const [products, setProducts] = useState<Product[]>([]);
@@ -1783,10 +1765,10 @@ export default function App() {
   };
 
   // Builds a Sale record and commits its side effects atomically (stock deltas, customer
-  // credit balance, cash register entry) — the shared core behind completeTransaction()'s
-  // single-cart POS checkout, and, going forward, closing a restaurant table/order (pass
-  // `extra` to link the Sale back to its origin `orders/{id}` — Fase 4b). Returns the
-  // created Sale so the caller can drive its own UI (receipt modal, ticket print, etc).
+  // credit balance, cash register entry) — the shared core behind closing a restaurant
+  // table/order in ComandaView (pass `extra` to link the Sale back to its origin
+  // `orders/{id}` — Fase 4b). Returns the created Sale so the caller can drive its own UI
+  // (receipt modal, ticket print, etc).
   const buildAndCommitSale = (params: {
     items: SaleItem[];
     paymentMethod: Sale['paymentMethod'];
@@ -1865,28 +1847,9 @@ export default function App() {
     return newSale;
   };
 
-  // Pos / Cart Operations State
-  const [cart, setCart] = useState<CartItem[]>([]);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<string>('Todos');
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
-  const [discountType, setDiscountType] = useState<'val' | 'pct'>('pct');
-  const [discountVal, setDiscountVal] = useState<number>(0);
-  const [taxPct, setTaxPct] = useState<number>(0);
-  const [requiresInvoice, setRequiresInvoice] = useState<boolean>(false);
-  const [paymentMethod, setPaymentMethod] = useState<'Cash' | 'Card' | 'Transfer' | 'Credit'>('Cash');
-  const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
-  const [receivedCashAmount, setReceivedCashAmount] = useState<string>('');
-
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [lastCompletedSale, setLastCompletedSale] = useState<Sale | null>(null);
   const [lastReceivedAmount, setLastReceivedAmount] = useState<number>(0);
-
-  // Search Results
-  const uniqueCategories = useMemo(() => {
-    const cats = products.map(p => p.category || 'Generales');
-    return ['Todos', ...Array.from(new Set(cats))];
-  }, [products]);
 
   const selectCategoriesList = useMemo(() => {
     const cats = Array.from(new Set(products.map(p => p.category || 'Generales')));
@@ -1927,151 +1890,6 @@ export default function App() {
       console.error("Error renaming category:", err);
       alert("Error al intentar renombrar la categoría en la nube.");
     }
-  };
-
-  const filteredProducts = useMemo(() => {
-    return products.filter(p => {
-      const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                            (p.category && p.category.toLowerCase().includes(searchTerm.toLowerCase()));
-      const matchesCat = selectedCategory === 'Todos' || p.category === selectedCategory;
-      // Terminal POS only sells what's physically in the active branch: products at 0
-      // stock are hidden so a cashier can't oversell. They reappear automatically once
-      // stock is added (surtido / transfer). This is per-branch, not global.
-      const hasStock = getProductStock(p, selectedBranchId) >= 1;
-      return matchesSearch && matchesCat && hasStock;
-    });
-  }, [products, searchTerm, selectedCategory, selectedBranchId]);
-
-  // Count of catalogue items hidden from the terminal purely because they're out of stock
-  // in the active branch (used to explain an empty grid instead of implying "no products").
-  const outOfStockHiddenCount = useMemo(() => {
-    return products.filter(p => {
-      const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                            (p.category && p.category.toLowerCase().includes(searchTerm.toLowerCase()));
-      const matchesCat = selectedCategory === 'Todos' || p.category === selectedCategory;
-      return matchesSearch && matchesCat && getProductStock(p, selectedBranchId) < 1;
-    }).length;
-  }, [products, searchTerm, selectedCategory, selectedBranchId]);
-
-  // Cart helper functions.
-  // Cart quantities are hard-capped at the active branch's available stock so a sale can
-  // never exceed physical inventory (no oversell). Stock is read live from `products`
-  // (not the cart's product snapshot) in case it changed since the item was added.
-  const addToCart = (product: Product) => {
-    const available = getProductStock(product, selectedBranchId);
-    const idx = cart.findIndex(item => item.product.id === product.id);
-    const currentQty = idx > -1 ? cart[idx].quantity : 0;
-    if (currentQty + 1 > available) {
-      alert(`No hay stock suficiente de "${product.name}" en esta sucursal.\nDisponible: ${available} u.${currentQty > 0 ? ` · Ya tienes ${currentQty} en el carrito.` : ''}`);
-      return;
-    }
-    if (idx > -1) {
-      const newCart = [...cart];
-      newCart[idx].quantity += 1;
-      setCart(newCart);
-    } else {
-      setCart([...cart, { product, quantity: 1 }]);
-    }
-  };
-
-  const updateCartQty = (productId: string, val: number) => {
-    const item = cart.find(i => i.product.id === productId);
-    if (!item) return;
-    const newQty = item.quantity + val;
-    if (newQty <= 0) {
-      setCart(cart.filter(i => i.product.id !== productId));
-      return;
-    }
-    if (val > 0) {
-      const liveProduct = products.find(p => p.id === productId) || item.product;
-      const available = getProductStock(liveProduct, selectedBranchId);
-      if (newQty > available) {
-        alert(`No hay stock suficiente de "${item.product.name}" en esta sucursal.\nDisponible: ${available} u.`);
-        return;
-      }
-    }
-    setCart(cart.map(i => i.product.id === productId ? { ...i, quantity: newQty } : i));
-  };
-
-  const removeFromCart = (productId: string) => {
-    setCart(cart.filter(i => i.product.id !== productId));
-  };
-
-  // Cart Metrics
-  const cartValues = useMemo(() => {
-    const subtotal = cart.reduce((acc, item) => acc + (item.product.salePrice * item.quantity), 0);
-    const calculatedDiscount = discountType === 'pct' 
-      ? (subtotal * discountVal / 100) 
-      : discountVal;
-    const discountedTotal = Math.max(0, subtotal - calculatedDiscount);
-    const taxValue = discountedTotal * taxPct / 100;
-    const total = discountedTotal + taxValue;
-    return { subtotal, calculatedDiscount, taxValue, total };
-  }, [cart, discountType, discountVal, taxPct]);
-
-  // Execute Checkout Payment
-  const completeTransaction = () => {
-    if (cart.length === 0) return;
-    
-    // Validate Credit payment requires customer
-    if (paymentMethod === 'Credit' && !selectedCustomer) {
-      alert('Debe seleccionar o registrar un cliente para realizar una venta al crédito ("Fiado").');
-      return;
-    }
-
-    // Validate Card or Transfer requires Folio number
-    if ((paymentMethod === 'Card' || paymentMethod === 'Transfer') && !folioNumber.trim()) {
-      alert('Para ventas con Tarjeta o Transferencia, es obligatorio registrar el Número de Folio / Referencia de la transacción.');
-      return;
-    }
-
-    // Final oversell guard: re-check every cart line against LIVE branch stock right
-    // before charging. Catches the case where stock dropped after items were added (e.g.
-    // a surtido correction, or a second device selling the same branch concurrently).
-    const insufficient = cart
-      .map(item => {
-        const liveProduct = products.find(p => p.id === item.product.id);
-        const available = liveProduct ? getProductStock(liveProduct, selectedBranchId) : 0;
-        return { name: item.product.name, requested: item.quantity, available };
-      })
-      .filter(x => x.requested > x.available);
-    if (insufficient.length > 0) {
-      alert(
-        'No se puede completar la venta por falta de stock en esta sucursal:\n' +
-        insufficient.map(x => `• ${x.name}: pides ${x.requested}, disponible ${x.available}`).join('\n') +
-        '\n\nAjusta las cantidades o agrega stock antes de cobrar.'
-      );
-      return;
-    }
-
-    const newSale = buildAndCommitSale({
-      items: cart.map(item => ({
-        productId: item.product.id,
-        name: item.product.name,
-        quantity: item.quantity,
-        salePrice: item.product.salePrice
-      })),
-      paymentMethod,
-      branchId: selectedBranchId, // Associate sale with the active branch!
-      discount: cartValues.calculatedDiscount,
-      taxAmount: cartValues.taxValue,
-      customerId: selectedCustomer?.id,
-      customerName: selectedCustomer?.name,
-      folio: (paymentMethod === 'Card' || paymentMethod === 'Transfer') ? folioNumber.trim() : undefined,
-      requiresInvoice
-    });
-
-    // Reset checkout states and triggers success receipt modal
-    setLastCompletedSale(newSale);
-    setLastReceivedAmount(paymentMethod === 'Cash' ? parseFloat(receivedCashAmount) || 0 : 0);
-    setCart([]);
-    setSelectedCustomer(null);
-    setDiscountVal(0);
-    setReceivedCashAmount('');
-    setFolioNumber('');
-    setRequiresInvoice(false);
-    setTaxPct(0);
-    setIsCheckoutOpen(false);
   };
 
   const handleSelectBranch = (branchId: string) => {
@@ -3757,7 +3575,6 @@ export default function App() {
         } lg:flex flex-col bg-white border-r border-slate-200/80 w-64 justify-start py-6 space-y-1.5 px-2 overflow-y-auto scrollbar-none absolute lg:relative z-50 h-full lg:h-auto shadow-2xl lg:shadow-none top-0 left-0 transition-transform`}>
           
           {[
-            { id: 'pos',        label: 'Terminal POS',       icon: <ShoppingCart className="w-5 h-5" /> },
             ...(activeCompany?.businessType === 'restaurante' ? [
               { id: 'tables',   label: 'Mesas / Salón',       icon: <Utensils className="w-5 h-5" /> }
             ] : []),
@@ -3813,688 +3630,8 @@ export default function App() {
         {/* Dynamic Frame Screen Views */}
         <main className="flex-grow p-4 md:p-6 select-none overflow-y-auto max-w-7xl mx-auto w-full">
           
-          {/* SCREEN: TERMINAL POS */}
-          {activeTab === 'pos' && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              
-              {/* Product Catalog Column */}
-              <div className="lg:col-span-8 space-y-4">
-                
-                {/* Switcher selector in POS (Catalog vs History vs Cashier) */}
-                <div className="flex bg-slate-100 p-1 rounded-2xl border border-slate-200">
-                  <button
-                    type="button"
-                    onClick={() => setPosSubTab('catalog')}
-                    className={`flex-1 py-2.5 text-xs font-black rounded-xl transition-all flex items-center justify-center space-x-2 cursor-pointer ${
-                      posSubTab === 'catalog'
-                        ? 'bg-white text-slate-800 shadow-sm border border-slate-150'
-                        : 'text-slate-505 hover:text-slate-800'
-                    }`}
-                  >
-                    <ShoppingCart className="w-3.5 h-3.5 inline mr-1" /><span>Catálogo</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPosSubTab('history')}
-                    className={`flex-1 py-2.5 text-xs font-black rounded-xl transition-all flex items-center justify-center space-x-2 cursor-pointer ${
-                      posSubTab === 'history'
-                        ? 'bg-white text-slate-800 shadow-sm border border-slate-150'
-                        : 'text-slate-500 hover:text-slate-800'
-                    }`}
-                  >
-                    <span>📜 Historial ({branchScopedSales.length})</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPosSubTab('cashier')}
-                    className={`flex-1 py-2.5 text-xs font-black rounded-xl transition-all flex items-center justify-center space-x-2 cursor-pointer ${
-                      posSubTab === 'cashier'
-                        ? 'bg-white text-slate-800 shadow-sm border border-slate-150'
-                        : 'text-slate-500 hover:text-slate-800'
-                    }`}
-                  >
-                    <DollarSign className="w-3.5 h-3.5 inline mr-1" /><span>Caja y Corte {!cashRegister.isOpen && <X className="w-3 h-3 inline text-red-500" />}</span>
-                  </button>
-                </div>
-
-                {posSubTab === 'catalog' && (
-                  <>
-                    {/* Search & Category Header */}
-                    <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-sm space-y-3">
-                      <div className="flex items-center gap-2">
-                        <div className="relative flex-1 min-w-0">
-                          <Search className="absolute left-3.5 top-3.5 w-5 h-5 text-slate-400" />
-                          <input
-                            type="text"
-                            placeholder="Pesquisa por nombre de producto o categoría..."
-                            value={searchTerm}
-                            onChange={e => setSearchTerm(e.target.value)}
-                            className="w-full pl-11 pr-4 py-3 rounded-xl bg-slate-50 border border-slate-200 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-505 text-sm font-medium transition"
-                          />
-                        </div>
-                        {/* View toggle: cards vs compact list — helps a lot once the
-                            catalog has many products, since list rows pack far more of
-                            them on screen without scrolling. */}
-                        <div className="flex bg-slate-100 border border-slate-200 rounded-xl p-0.5 shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => { setPosCatalogView('grid'); localStorage.setItem('logic_pos_catalog_view', 'grid'); }}
-                            className={`p-2.5 rounded-lg transition cursor-pointer ${posCatalogView === 'grid' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
-                            title="Vista de tarjetas"
-                            aria-label="Vista de tarjetas"
-                          >
-                            <LayoutGrid className="w-4 h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => { setPosCatalogView('list'); localStorage.setItem('logic_pos_catalog_view', 'list'); }}
-                            className={`p-2.5 rounded-lg transition cursor-pointer ${posCatalogView === 'list' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
-                            title="Vista de lista"
-                            aria-label="Vista de lista"
-                          >
-                            <List className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-     
-                      {/* Horizontal Category Slider */}
-                      <div className="flex items-center space-x-2 overflow-x-auto pb-2 scrollbar-none">
-                        <Filter className="w-4 h-4 text-slate-500 flex-shrink-0" />
-                        {uniqueCategories.map(cat => (
-                          <button
-                            key={cat}
-                            onClick={() => setSelectedCategory(cat)}
-                            className={`px-3.5 py-1.5 text-xs font-bold rounded-full cursor-pointer transition flex-shrink-0 border ${
-                              selectedCategory === cat
-                                ? 'text-white shadow-sm'
-                                : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
-                            }`}
-                            style={selectedCategory === cat ? { backgroundColor: 'var(--brand-primary)', borderColor: 'var(--brand-primary)' } : undefined}
-                          >
-                            {cat}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-     
-                    {/* Main Product Catalog Grid */}
-                    {filteredProducts.length === 0 ? (
-                      <div className="bg-white border rounded-xl p-12 text-center text-slate-500">
-                        {outOfStockHiddenCount > 0 ? (
-                          <>
-                            <p className="font-medium text-lg">Sin productos disponibles para vender</p>
-                            <p className="text-sm text-slate-400 mt-1">
-                              {outOfStockHiddenCount} producto{outOfStockHiddenCount > 1 ? 's están ocultos' : ' está oculto'} por no tener stock en esta sucursal. Agrega stock (Surtir o Transferir) para venderlos.
-                            </p>
-                          </>
-                        ) : (
-                          <>
-                            <p className="font-medium text-lg">No se encontraron productos coincidentes o vacíos</p>
-                            <button
-                              onClick={() => handleOpenProductModal()}
-                              className="mt-4 px-4 py-2 bg-indigo-605 hover:bg-indigo-700 text-white text-sm font-bold rounded-xl shadow cursor-pointer transition"
-                            >
-                              + Crear Nuevo Producto
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    ) : posCatalogView === 'grid' ? (
-                      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                        {filteredProducts.map(prod => {
-                          const inCartItem = cart.find(ci => ci.product.id === prod.id);
-                          return (
-                            <div
-                               key={prod.id}
-                               onClick={() => addToCart(prod)}
-                               className="bg-white border border-slate-200/80 hover:border-indigo-505 rounded-2xl p-3 sm:p-4 flex flex-col justify-between cursor-pointer transition-all hover:shadow-md relative group duration-150"
-                            >
-                              {/* Stock Badges */}
-                              <div className="flex flex-wrap gap-1 justify-between items-start mb-2">
-                                <span className="text-[9px] sm:text-[10px] font-bold px-1.5 sm:px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200/50 truncate max-w-[60%]">
-                                  {prod.category}
-                                </span>
-                                <span className={`text-[9px] sm:text-[10px] font-bold px-1.5 sm:px-2 py-0.5 rounded-full shrink-0 ${
-                                  getProductStock(prod, selectedBranchId) <= prod.minStock
-                                    ? 'bg-amber-100 text-amber-700 font-extrabold animate-pulse'
-                                    : 'bg-slate-50 text-slate-600'
-                                }`}>
-                                  Stock: {getProductStock(prod, selectedBranchId)}
-                                </span>
-                              </div>
-
-                              <div className="h-24 rounded-xl mb-3 flex items-center justify-center transition group-hover:opacity-80"
-                                style={{ backgroundColor: 'color-mix(in srgb, var(--brand-primary) 8%, white)', border: '1px solid color-mix(in srgb, var(--brand-primary) 15%, transparent)' }}>
-                                <Package className="w-10 h-10 group-hover:scale-110 transition duration-200" style={{ color: 'color-mix(in srgb, var(--brand-primary) 50%, #94a3b8)' }} />
-                              </div>
-
-                              <div>
-                                <h4 className="font-bold text-slate-800 text-sm truncate">{prod.name}</h4>
-                                <div className="flex justify-between items-center mt-2.5 gap-2">
-                                  <span className="text-[13px] sm:text-base font-extrabold text-indigo-600 truncate flex-1 min-w-0" title={formatMXN(prod.salePrice)}>{formatMXN(prod.salePrice)}</span>
-
-                                  {inCartItem ? (
-                                    <span className="bg-indigo-600 text-white w-6 h-6 shrink-0 rounded-full flex items-center justify-center font-bold text-xs shadow-sm">
-                                      {inCartItem.quantity}
-                                    </span>
-                                  ) : (
-                                    <span className="text-slate-400 group-hover:text-indigo-600 shrink-0 bg-slate-50 group-hover:bg-indigo-50 p-1.5 rounded-full duration-150 border border-transparent group-hover:border-indigo-100">
-                                      <Plus className="w-4 h-4" />
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      /* Compact list — same tap-to-add behavior as the cards, but one
-                         product per row so far more of the catalog fits without scrolling. */
-                      <div className="bg-white border border-slate-200 rounded-xl divide-y divide-slate-100 overflow-hidden">
-                        {filteredProducts.map(prod => {
-                          const inCartItem = cart.find(ci => ci.product.id === prod.id);
-                          const low = getProductStock(prod, selectedBranchId) <= prod.minStock;
-                          return (
-                            <div
-                              key={prod.id}
-                              onClick={() => addToCart(prod)}
-                              className="flex items-center gap-3 p-3 hover:bg-slate-50 active:bg-indigo-50/60 cursor-pointer transition"
-                            >
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <h4 className="font-bold text-slate-800 text-sm truncate">{prod.name}</h4>
-                                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-200 shrink-0">{prod.category}</span>
-                                </div>
-                                <div className="flex items-center gap-3 text-[11px] mt-0.5">
-                                  <span className="font-extrabold" style={{ color: 'var(--brand-primary)' }}>{formatMXN(prod.salePrice)}</span>
-                                  <span className={`font-bold ${low ? 'text-amber-600' : 'text-slate-500'}`}>
-                                    {low && <AlertCircle className="w-3 h-3 inline mr-0.5" />}Stock: {getProductStock(prod, selectedBranchId)}
-                                  </span>
-                                </div>
-                              </div>
-                              {inCartItem ? (
-                                <span className="bg-indigo-600 text-white w-7 h-7 shrink-0 rounded-full flex items-center justify-center font-bold text-xs shadow-sm">
-                                  {inCartItem.quantity}
-                                </span>
-                              ) : (
-                                <span className="text-indigo-600 shrink-0 bg-indigo-50 p-2 rounded-full border border-indigo-100">
-                                  <Plus className="w-4 h-4" />
-                                </span>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </>
-                )}
-
-                {posSubTab === 'history' && (
-                  /* Terminal-Integrated Sales History */
-                  <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
-                    <div className="flex justify-between items-center border-b pb-3">
-                      <div>
-                        <h3 className="font-extrabold text-slate-800 text-sm">Ventas del Turno / Recientes</h3>
-                        <p className="text-[10px] text-slate-500">Últimas transacciones del comercio actual registradas en tu terminal POS.</p>
-                      </div>
-                    </div>
-
-                    {branchScopedSales.length === 0 ? (
-                      <div className="border border-dashed rounded-2xl p-10 text-center text-slate-400">
-                        <Receipt className="w-10 h-10 text-slate-300 mx-auto mb-2" />
-                        <p className="text-xs font-bold">Sin transacciones registradas hoy.</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
-                        {branchScopedSales.map(sale => (
-                          <div key={sale.id} className="border border-slate-150 rounded-xl p-3 bg-slate-50 hover:bg-white transition duration-150 space-y-2 overflow-hidden">
-                            <div className="flex justify-between items-center gap-2 text-xs">
-                              <span className="font-black text-slate-800 bg-slate-100 border px-2 py-0.5 rounded text-[10px] truncate min-w-0">{sale.id}</span>
-                              <span className="text-[10px] text-slate-400 font-mono shrink-0">{sale.timestamp}</span>
-                            </div>
-
-                            <div className="flex justify-between items-start gap-2">
-                              <div className="text-xs flex-1 min-w-0">
-                                <p className="font-bold text-slate-700">Artículos ({sale.items.length}):</p>
-                                <p className="text-[10px] text-slate-500 truncate">
-                                  {sale.items.map(it => `${it.quantity}x ${it.name}`).join(', ')}
-                                </p>
-                                {sale.customerName && (
-                                  <p className="text-[10px] text-indigo-600 font-semibold mt-1 truncate">🏷️ Cliente: {sale.customerName}</p>
-                                )}
-                                {sale.employeeName && (
-                                  <p className="text-[10px] text-slate-500 font-semibold mt-0.5 truncate">👤 Atendido por: {sale.employeeName}</p>
-                                )}
-                              </div>
-                              <div className="text-right shrink-0">
-                                <p className="font-extrabold text-indigo-700 text-xs">{formatMXN(sale.total)}</p>
-                                <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-full border block mt-1 ${
-                                  sale.status === 'Completed' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-750 border-red-200'
-                                }`}>
-                                  {sale.status === 'Completed' ? 'Exitosa' : 'Reembolsada'}
-                                </span>
-                              </div>
-                            </div>
-
-                            {/* Options block for completed terminal sale */}
-                            <div className="pt-2 border-t border-slate-100 flex justify-between items-center gap-2">
-                              {sale.status === 'Completed' ? (
-                                isOwnerOrAdminRole ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleRefundSale(sale.id)}
-                                    className="text-[9px] font-black text-pink-600 hover:text-white hover:bg-pink-600 border border-pink-100 px-2 py-1 rounded transition cursor-pointer"
-                                  >
-                                    Reembolsar Venta
-                                  </button>
-                                ) : (
-                                  <span className="text-[9px] font-medium text-slate-300">Solo Propietario/Admin puede reembolsar</span>
-                                )
-                              ) : (
-                                <span className="text-[9px] font-medium text-slate-300">Venta Cancelada</span>
-                              )}
-
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setLastCompletedSale(sale);
-                                  setLastReceivedAmount(0); // non-cash popup
-                                }}
-                                className="text-[9px] font-black bg-indigo-50 border border-indigo-150 hover:bg-indigo-600 hover:text-white px-2.5 py-1 rounded text-indigo-600 transition cursor-pointer"
-                              >
-                                📥 Compartir / Recibo
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {posSubTab === 'cashier' && (
-                  <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-5">
-                    <div className="flex justify-between items-center border-b pb-3">
-                      <div>
-                        <h3 className="font-extrabold text-slate-800 text-sm">Control Administrativo de Caja</h3>
-                        <p className="text-[10px] text-slate-400">Verifica montos físicos, realiza entradas y egresos, y haz cortes.</p>
-                      </div>
-                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                        cashRegister.isOpen ? 'bg-emerald-100 text-emerald-850 border border-emerald-250' : 'bg-rose-105 text-rose-800 border border-rose-250 animate-pulse'
-                      }`}>
-                        Estado: {cashRegister.isOpen ? 'Caja Abierta ✓' : 'Caja Cerrada ✗'}
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-2 lg:grid-cols-2 gap-4">
-                      <div className="bg-slate-50 border border-slate-150 p-4 rounded-2xl space-y-1 text-left">
-                        <span className="text-[9px] text-slate-400 font-black uppercase">Saldo Inicial de Turno</span>
-                        <p className="text-sm font-black text-slate-700 font-mono">{formatMXN(cashRegister.initialCash)}</p>
-                      </div>
-                      <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-2xl space-y-1 text-left">
-                        <span className="text-[9px] text-indigo-500 font-black uppercase">Efectivo Sugerido (Sistema)</span>
-                        <p className="text-sm font-black text-indigo-750 font-mono">{formatMXN(cashRegister.currentCash)}</p>
-                      </div>
-                    </div>
-
-                    <div className="flex justify-center pt-1">
-                      {cashRegister.isOpen ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setRealCashInput(cashRegister.currentCash.toString());
-                            setIsCorteModalOpen(true);
-                          }}
-                          className="w-full py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-extrabold text-xs rounded-xl shadow cursor-pointer transition uppercase tracking-wider"
-                        >
-                          Corte de Caja (Cierre de Turno) 📝
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setOpeningCashInput('500');
-                            setIsOpeningCajaModalOpen(true);
-                          }}
-                          className="w-full py-3 bg-gradient-to-r from-indigo-600 to-indigo-750 hover:from-indigo-700 hover:to-indigo-800 text-white font-extrabold text-xs rounded-xl shadow cursor-pointer transition uppercase tracking-wider animate-pulse"
-                        >
-                          Realizar Apertura de Caja 🚀
-                        </button>
-                      )}
-                    </div>
-
-                    {cashRegister.isOpen && (
-                      <div className="bg-slate-50 border border-slate-150 p-4 rounded-2xl space-y-4 text-left">
-                        <h4 className="font-extrabold text-slate-700 text-xs">💵 Movimiento de Caja Manual</h4>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          <div className="space-y-1/2">
-                            <label className="text-[10px] text-slate-400 font-bold block">Concepto o Descripción *</label>
-                            <input
-                              type="text"
-                              placeholder="Ej: Pago de gas, Propina"
-                              value={cashFlowDesc}
-                              onChange={e => setCashFlowDesc(e.target.value)}
-                              className="w-full bg-white border border-slate-205 rounded-xl px-3 py-2 outline-none font-bold text-xs"
-                            />
-                          </div>
-                          <div className="space-y-1/2">
-                            <label className="text-[10px] text-slate-400 font-bold block">Monto ($ MXN) *</label>
-                            <div className="flex gap-2">
-                              <input
-                                type="number"
-                                placeholder="0.00"
-                                value={cashFlowAmount}
-                                onChange={e => setCashFlowAmount(e.target.value)}
-                                className="w-1/2 bg-white border border-slate-205 rounded-xl px-3 py-2 outline-none font-bold text-xs"
-                              />
-                              <button
-                                type="button"
-                                onClick={() => handleRecordCashFlow('Ingreso')}
-                                className="w-1/4 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[10px] rounded-xl text-center shadow cursor-pointer transition uppercase"
-                              >
-                                entrada
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleRecordCashFlow('Egreso')}
-                                className="w-1/4 bg-rose-600 hover:bg-rose-700 text-white font-black text-[10px] rounded-xl text-center shadow cursor-pointer transition uppercase"
-                              >
-                                salida
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="space-y-2 text-left">
-                      <h4 className="font-extrabold text-xs text-slate-600">📜 Transacciones del Turno</h4>
-                      <div className="border border-slate-150 rounded-2xl bg-white divide-y divide-slate-100 max-h-48 overflow-y-auto pr-1">
-                        {cashRegister.transactions.slice().reverse().map((tx, idx) => (
-                          <div key={idx} className="p-3 flex justify-between items-center text-xs">
-                            <div className="space-y-0.5">
-                              <p className="font-extrabold text-slate-700">{tx.description}</p>
-                              <p className="text-[9px] text-slate-400 font-mono italic">{tx.time}</p>
-                            </div>
-                            <span className={`font-mono font-black text-[10px] px-2 py-0.5 rounded ${
-                              tx.type === 'Ingreso' ? 'bg-emerald-50 text-emerald-800' : tx.type === 'Transferencia' ? 'bg-sky-50 text-sky-700' : 'bg-rose-50 text-rose-800'
-                            }`}>
-                              {tx.type === 'Ingreso' ? '+' : tx.type === 'Transferencia' ? '' : '-'}{formatTxAmount(tx)}
-                            </span>
-                          </div>
-                        ))}
-                        {cashRegister.transactions.length === 0 && (
-                          <p className="text-center text-[10px] text-slate-400 py-6">Ninguna transacción registrada en la sesión actual.</p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
- 
-              {/* Dynamic Drawer Basket (Right Column) */}
-              <div className="lg:col-span-4 bg-white rounded-2xl border border-slate-200/80 shadow-md p-4 flex flex-col justify-between h-[max-content] min-h-[500px]">
-                <div>
-                  <div className="flex justify-between items-center pb-3 border-b mb-4">
-                    <div className="flex items-center space-x-2">
-                      <ShoppingCart className="w-5 h-5 text-indigo-600" />
-                      <h3 className="font-extrabold text-slate-800 text-base">Carrito de Ventas</h3>
-                    </div>
-                    {cart.length > 0 && (
-                      <button 
-                        onClick={() => setCart([])} 
-                        className="text-xs text-slate-400 hover:text-indigo-650 font-semibold cursor-pointer"
-                      >
-                        Vaciar
-                      </button>
-                    )}
-                  </div>
- 
-                  {/* Customer Selector inside Cart */}
-                  <div className="bg-indigo-55/10 p-3 rounded-xl border border-dashed border-indigo-200/55 mb-4">
-                    {selectedCustomer ? (
-                      <div className="flex justify-between items-center">
-                        <div>
-                          <p className="text-xs text-slate-400 uppercase tracking-widest font-extrabold">Cliente Seleccionado</p>
-                          <p className="font-extrabold text-sm text-slate-800 mt-0.5">{selectedCustomer.name}</p>
-                          <p className="text-xs text-slate-500">Saldo "Fiado" Pendiente: <span className="font-bold text-purple-650">{formatMXN(selectedCustomer.unpaidBalance)}</span></p>
-                        </div>
-                        <button 
-                          onClick={() => setSelectedCustomer(null)}
-                          className="p-1 text-slate-400 hover:text-purple-650 bg-white shadow rounded-full"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        <label className="text-xs font-bold text-slate-500 block">Asignar Cliente a la Venta</label>
-                        <select 
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            if (val === 'new') handleOpenCustomerModal();
-                            else {
-                              const found = customers.find(c => c.id === val);
-                              if (found) setSelectedCustomer(found);
-                            }
-                          }}
-                          value={selectedCustomer ? selectedCustomer.id : ''}
-                          className="w-full text-xs font-medium bg-white border border-slate-200 rounded-lg p-2 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
-                        >
-                          <option value="">-- Cliente Casual --</option>
-                          {customers.map(c => (
-                            <option key={c.id} value={c.id}>{c.name} {c.phone ? `(${c.phone})` : ''}</option>
-                          ))}
-                          <option value="new" className="text-purple-600 font-bold">+ Registrar Nuevo Cliente...</option>
-                        </select>
-                      </div>
-                    )}
-                  </div>
- 
-                  {/* Cart Items List */}
-                  {cart.length === 0 ? (
-                    <div className="text-center py-12 text-slate-400 space-y-3">
-                      <div className="w-12 h-12 rounded-full bg-slate-50 border flex items-center justify-center mx-auto text-slate-300">
-                        <ShoppingCart className="w-6 h-6" />
-                      </div>
-                      <p className="text-xs font-medium">Pulsa sobre los artículos del catálogo de la izquierda para llenar el carrito.</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-3 max-h-[220px] overflow-y-auto pr-1">
-                      {cart.map(item => (
-                        <div key={item.product.id} className="flex justify-between items-center bg-slate-50 border p-2 rounded-xl border-slate-100">
-                          <div className="truncate mr-2 flex-grow">
-                            <p className="text-xs font-bold text-slate-800 truncate">{item.product.name}</p>
-                            <p className="text-[10px] text-slate-400">{formatMXN(item.product.salePrice)} unitario</p>
-                          </div>
-                          <div className="flex items-center space-x-2 flex-shrink-0">
-                            <button 
-                              onClick={() => updateCartQty(item.product.id, -1)}
-                              className="w-6 h-6 rounded bg-white hover:bg-slate-200 border flex items-center justify-center text-slate-600 text-xs font-bold cursor-pointer"
-                            >
-                              <Minus className="w-3 h-3" />
-                            </button>
-                            <span className="text-xs font-bold text-slate-800 w-4 text-center">{item.quantity}</span>
-                            <button 
-                              onClick={() => updateCartQty(item.product.id, 1)}
-                              className="w-6 h-6 rounded bg-white hover:bg-slate-200 border flex items-center justify-center text-slate-600 text-xs font-bold cursor-pointer"
-                            >
-                              <Plus className="w-3 h-3" />
-                            </button>
-                            <button 
-                              onClick={() => removeFromCart(item.product.id)}
-                              className="text-slate-300 hover:text-indigo-600 ml-1 cursor-pointer"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
- 
-                  {/* Cart Discount Tool Panel */}
-                  {cart.length > 0 && (
-                    <div className="mt-4 pt-4 border-t border-slate-100 space-y-2.5">
-                      <div className="flex justify-between items-center">
-                        <span className="text-xs font-bold text-slate-500 flex items-center">
-                          <Tag className="w-3.5 h-3.5 mr-1 text-slate-400" />
-                          Aplicar Descuento
-                        </span>
-                        <div className="flex border rounded-lg overflow-hidden text-[10px]">
-                          <button
-                            onClick={() => { setDiscountType('pct'); setDiscountVal(0); }}
-                            className={`px-2 py-1 font-bold ${discountType !== 'pct' ? 'bg-slate-100 text-slate-600' : 'text-white'}`}
-                            style={discountType === 'pct' ? { backgroundColor: 'var(--brand-primary)' } : undefined}
-                          >
-                            %
-                          </button>
-                          <button
-                            onClick={() => { setDiscountType('val'); setDiscountVal(0); }}
-                            className={`px-2 py-1 font-bold ${discountType !== 'val' ? 'bg-slate-100 text-slate-600' : 'text-white'}`}
-                            style={discountType === 'val' ? { backgroundColor: 'var(--brand-primary)' } : undefined}
-                          >
-                            $MXN
-                          </button>
-                        </div>
-                      </div>
-                      <div className="relative">
-                        <input 
-                          type="number" 
-                          min="0"
-                          value={discountVal || ''}
-                          onChange={(e) => setDiscountVal(Math.max(0, parseFloat(e.target.value) || 0))}
-                          placeholder={discountType === 'pct' ? "Porcentaje de descuento (ej. 10)" : "Valor del descuento (ej 5)"}
-                          className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg p-2 outline-none focus:border-indigo-400"
-                        />
-                      </div>
-                    </div>
-                  )}
-                </div>
- 
-                {/* Totals & Submit Section */}
-                {cart.length > 0 && (
-                  <div className="mt-6 pt-4 border-t border-slate-200 space-y-3">
-                    <div className="space-y-1.5 text-xs text-slate-500">
-                      <div className="flex justify-between">
-                        <span>Subtotal:</span>
-                        <span className="font-bold text-slate-700">{formatMXN(cartValues.subtotal)}</span>
-                      </div>
-                      {cartValues.calculatedDiscount > 0 && (
-                        <div className="flex justify-between text-emerald-600">
-                          <span>Descuento Aplicado:</span>
-                          <span className="font-bold">-{formatMXN(cartValues.calculatedDiscount)}</span>
-                        </div>
-                      )}
-                      <div className="flex justify-between">
-                        <span>Impuesto ({taxPct}%):</span>
-                        <span className="font-bold text-slate-700">{formatMXN(cartValues.taxValue)}</span>
-                      </div>
-                      <div className="flex justify-between text-base font-extrabold text-slate-800 pt-1.5 border-t border-slate-100">
-                        <span>Total neto:</span>
-                        <span className="text-indigo-600 font-extrabold">{formatMXN(cartValues.total)}</span>
-                      </div>
-                    </div>
- 
-                    {/* Quick Payment Selection */}
-                    <div className="flex items-center space-x-2 py-1">
-                      <input 
-                        type="checkbox" 
-                        id="requiresInvoice" 
-                        checked={requiresInvoice} 
-                        onChange={(e) => {
-                          setRequiresInvoice(e.target.checked);
-                          setTaxPct(e.target.checked ? 16 : 0);
-                        }}
-                        className="w-3.5 h-3.5 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 cursor-pointer"
-                      />
-                      <label htmlFor="requiresInvoice" className="text-[10px] font-bold text-slate-600 cursor-pointer">
-                        Requiere Factura (+16% IVA)
-                      </label>
-                    </div>
-                    <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 space-y-2">
-                      <label className="text-[10px] font-extrabold text-slate-400 block uppercase tracking-wider">Método de Pago</label>
-                      <div className="grid grid-cols-4 gap-1.5">
-                        {[
-                          { id: 'Cash', label: 'Efectivo' },
-                          { id: 'Card', label: 'T. Déb/Cr' },
-                          { id: 'Transfer', label: 'Transf.' },
-                          { id: 'Credit', label: 'Fiado' }
-                        ].map(pm => (
-                          <button
-                            key={pm.id}
-                            onClick={() => setPaymentMethod(pm.id as any)}
-                            className={`py-1.5 px-0.5 text-[9px] font-bold rounded-lg border cursor-pointer transition text-center ${
-                              paymentMethod === pm.id 
-                                ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' 
-                                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
-                            }`}
-                          >
-                            {pm.label}
-                          </button>
-                        ))}
-                      </div>
- 
-                      {/* Cash Drawer Calculator Helper */}
-                      {paymentMethod === 'Cash' && (
-                        <div className="pt-2 border-t border-slate-200/50 flex items-center justify-between">
-                          <label className="text-[10px] text-slate-500 font-bold">Efectivo Recibido:</label>
-                          <div className="flex items-center space-x-1 w-2/3">
-                            <span className="text-xs font-bold text-slate-400">$</span>
-                            <input 
-                              type="number"
-                              placeholder="Ej: 20"
-                              value={receivedCashAmount}
-                              onChange={e => setReceivedCashAmount(e.target.value)}
-                              className="w-full bg-white border border-slate-200 text-xs rounded p-1 outline-none text-right font-bold"
-                            />
-                          </div>
-                        </div>
-                      )}
- 
-                      {/* Cash Change Math */}
-                      {paymentMethod === 'Cash' && parseFloat(receivedCashAmount) > cartValues.total && (
-                        <div className="flex justify-between text-[11px] font-bold bg-amber-50 text-amber-800 p-1.5 rounded border border-amber-100">
-                          <span>Cambio para Cliente:</span>
-                          <span>{formatMXN(parseFloat(receivedCashAmount) - cartValues.total)}</span>
-                        </div>
-                      )}
-
-                      {/* Card or Transfer transaction folio input */}
-                      {(paymentMethod === 'Card' || paymentMethod === 'Transfer') && (
-                        <div className="pt-2 border-t border-slate-200/50 space-y-1 text-left">
-                          <label className="text-[10px] text-slate-500 font-bold block uppercase tracking-wider">Número de Folio *</label>
-                          <input 
-                            type="text"
-                            required
-                            placeholder="Ej: FOL-99238A"
-                            value={folioNumber}
-                            onChange={e => setFolioNumber(e.target.value)}
-                            className="w-full bg-white border border-slate-200 text-xs rounded-lg p-2.5 outline-none font-bold text-slate-700 placeholder-slate-400 focus:border-indigo-500"
-                          />
-                          <p className="text-[9px] text-slate-400 font-medium">Por favor registre la clave o identificador de la transacción.</p>
-                        </div>
-                      )}
-                    </div>
- 
-                    <button
-                      onClick={completeTransaction}
-                      className="w-full py-3.5 text-white font-extrabold text-center rounded-xl shadow-lg hover:shadow-xl transition-all duration-150 flex items-center justify-center space-x-2 cursor-pointer"
-                      style={{ backgroundColor: 'var(--brand-primary)', filter: 'none' }}
-                      onMouseEnter={e => (e.currentTarget.style.filter = 'brightness(1.1)')}
-                      onMouseLeave={e => (e.currentTarget.style.filter = 'none')}
-                    >
-                      <CircleDollarSign className="w-5 h-5 text-white animate-spin" style={{ animationDuration: '4s' }} />
-                      <span>PROCESAR VENTA ({formatMXN(cartValues.total)})</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-          )}
+          {/* SCREEN: TERMINAL POS — eliminada; este despliegue es 100% flujo de restaurante
+              (Mesas/Comandas), la venta directa por carrito ya no aplica. */}
 
           {/* SCREEN: TABLES FLOOR VIEW & COMANDA VIEW */}
           {activeTab === 'tables' && activeCompany?.businessType === 'restaurante' && (
@@ -5004,6 +4141,38 @@ export default function App() {
                 </div>
               </div>
 
+              {/* Apertura / Corte de Caja — rescatado de la extinta Terminal POS */}
+              <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-5 flex flex-col sm:flex-row items-center justify-between gap-4">
+                <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                  cashRegister.isOpen ? 'bg-emerald-100 text-emerald-850 border border-emerald-250' : 'bg-rose-105 text-rose-800 border border-rose-250 animate-pulse'
+                }`}>
+                  Estado: {cashRegister.isOpen ? 'Caja Abierta ✓' : 'Caja Cerrada ✗'}
+                </span>
+                {cashRegister.isOpen ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRealCashInput(cashRegister.currentCash.toString());
+                      setIsCorteModalOpen(true);
+                    }}
+                    className="w-full sm:w-auto px-6 py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-extrabold text-xs rounded-xl shadow cursor-pointer transition uppercase tracking-wider"
+                  >
+                    Corte de Caja (Cierre de Turno) 📝
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOpeningCashInput('500');
+                      setIsOpeningCajaModalOpen(true);
+                    }}
+                    className="w-full sm:w-auto px-6 py-3 bg-gradient-to-r from-indigo-600 to-indigo-750 hover:from-indigo-700 hover:to-indigo-800 text-white font-extrabold text-xs rounded-xl shadow cursor-pointer transition uppercase tracking-wider animate-pulse"
+                  >
+                    Realizar Apertura de Caja 🚀
+                  </button>
+                )}
+              </div>
+
               {/* Monthly Cut / Statement PDF export */}
               <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-6 text-left">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -5150,15 +4319,27 @@ export default function App() {
                                 <p className="text-base font-black text-slate-800 mt-1">Total Generado: {formatMXN(sale.total)}</p>
                               </div>
 
-                              {sale.status === 'Completed' && isOwnerOrAdminRole && (
+                              <div className="mt-2.5 flex flex-wrap justify-end gap-2">
+                                {sale.status === 'Completed' && isOwnerOrAdminRole && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRefundSale(sale.id)}
+                                    className="px-3 py-1 text-[10px] hover:bg-pink-650 hover:text-white border border-pink-200 rounded text-pink-600 font-bold cursor-pointer transition align-middle"
+                                  >
+                                    Devolución / Reembolso
+                                  </button>
+                                )}
                                 <button
                                   type="button"
-                                  onClick={() => handleRefundSale(sale.id)}
-                                  className="mt-2.5 px-3 py-1 text-[10px] hover:bg-pink-650 hover:text-white border border-pink-200 rounded text-pink-600 font-bold cursor-pointer transition align-middle"
+                                  onClick={() => {
+                                    setLastCompletedSale(sale);
+                                    setLastReceivedAmount(0); // non-cash popup
+                                  }}
+                                  className="px-3 py-1 text-[10px] font-black bg-indigo-50 border border-indigo-150 hover:bg-indigo-600 hover:text-white rounded text-indigo-600 transition cursor-pointer"
                                 >
-                                  Devolución / Reembolso
+                                  📥 Compartir / Recibo
                                 </button>
-                              )}
+                              </div>
                             </div>
                           </div>
                         </div>
