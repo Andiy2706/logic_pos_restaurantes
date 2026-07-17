@@ -3734,24 +3734,58 @@ export default function App() {
               <p className="text-[11px] font-bold text-white leading-tight truncate max-w-[120px]">
                 {currentUserMember?.name || user.displayName || 'Comerciante'}
               </p>
-              <p className="text-[9px] leading-none truncate max-w-[120px] font-black uppercase tracking-wider mt-0.5" style={{ color: 'var(--brand-primary)' }}>
-                {currentUserMember?.role === 'owner' ? 'Dueño' :
-                 currentUserMember?.role === 'master_admin' ? 'Master Admin' :
-                 currentUserMember?.role === 'admin' ? 'Administrador' :
-                 currentUserMember?.role === 'employee' ? 'Cajero' :
-                 currentUserMember?.role === 'mesero' ? 'Mesero' : 'Usuario'}
-              </p>
+              {(() => {
+                const role = currentUserMember?.role;
+                let colorClass = 'text-slate-400';
+                let Icon = Users;
+                let label = 'Usuario';
+
+                if (role === 'owner') {
+                  colorClass = 'text-amber-500';
+                  Icon = ShieldCheck;
+                  label = 'Dueño';
+                } else if (role === 'master_admin') {
+                  colorClass = 'text-purple-400';
+                  Icon = ShieldCheck;
+                  label = 'Master Admin';
+                } else if (role === 'admin') {
+                  colorClass = 'text-blue-400';
+                  Icon = ShieldCheck;
+                  label = 'Administrador';
+                } else if (role === 'employee') {
+                  colorClass = 'text-emerald-400';
+                  Icon = CircleDollarSign;
+                  label = 'Cajero';
+                } else if (role === 'mesero') {
+                  colorClass = 'text-amber-500';
+                  Icon = Utensils;
+                  label = 'Mesero';
+                } else if (!role) {
+                  colorClass = 'text-amber-500';
+                  Icon = ShieldCheck;
+                  label = 'Dueño';
+                }
+
+                return (
+                  <span className={`text-[9px] font-extrabold uppercase tracking-widest flex items-center gap-1 mt-0.5 ${colorClass}`}>
+                    <Icon className="w-2.5 h-2.5 shrink-0" />
+                    <span>{label}</span>
+                  </span>
+                );
+              })()}
             </div>
             <div className="flex space-x-1 lg:space-x-1.5 flex-shrink-0">
-              <button
-                onClick={() => { localStorage.removeItem(`logic_active_company_${user.uid}`); setActiveCompanyId(null); }}
-                className="text-[9px] lg:text-[10px] text-white font-bold px-2 lg:px-2.5 py-1 rounded-lg cursor-pointer transition select-none border"
-                style={{ backgroundColor: 'color-mix(in srgb, var(--brand-dark) 70%, black)', borderColor: 'color-mix(in srgb, var(--brand-primary) 35%, transparent)' }}
-                title="Cambiar de comercio / empresa"
-              >
-                <span className="hidden sm:inline">Empresas</span>
-                <span className="sm:hidden">Emp</span>
-              </button>
+              {(!currentUserMember || currentUserMember?.role === 'owner' || currentUserMember?.role === 'master_admin') && (
+                <button
+                  onClick={() => { localStorage.removeItem(`logic_active_company_${user.uid}`); setActiveCompanyId(null); }}
+                  className="text-[9px] lg:text-[10px] text-white font-bold px-2 lg:px-2.5 py-1 rounded-lg cursor-pointer transition select-none border"
+                  style={{ backgroundColor: 'color-mix(in srgb, var(--brand-dark) 70%, black)', borderColor: 'color-mix(in srgb, var(--brand-primary) 35%, transparent)' }}
+                  title="Cambiar de comercio / empresa"
+                >
+                  <span className="hidden sm:inline">Empresas</span>
+                  <span className="sm:hidden">Emp</span>
+                </button>
+              )}
               <button
                 onClick={() => signOut(auth)}
                 className="text-[9px] lg:text-[10px] bg-red-700 hover:bg-red-600 border border-red-600 text-white font-bold px-2 lg:px-2.5 py-1 rounded-lg cursor-pointer transition select-none"
