@@ -14,6 +14,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "363162713248-75p0hhcar3nls2mkvqsfhr7br6l8cnfe.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "mx.einnovacion.logicpos.restaurantes",
+            "certificate_hash": "a7888d47e53cf46ff3dd0424567f00acffd9e368"
+          }
+        },
+        {
           "client_id": "363162713248-an3fmtut5s71ibfgrd12dh5foflkh3tt.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {

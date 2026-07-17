@@ -6,12 +6,15 @@ const config: CapacitorConfig = {
   webDir: 'dist',
   server: {
     androidScheme: 'https',
-    // Reverted: pointing the WebView's own origin at Firebase's authDomain (tried
-    // previously to fix signInWithRedirect) backfired — Capacitor then intercepts
-    // EVERY request to that host locally, including `/__/auth/handler`, which Firebase
-    // needs to serve for real over the network to complete the flow. Google login on
-    // native now goes through @capacitor-firebase/authentication (native SDK, no WebView
-    // redirect at all) instead, so this no longer needs to match authDomain.
+    // Loads the live deployed site instead of the bundled `dist/` assets, so JS/React
+    // changes go out with a normal `git push` (auto-deploys via .github/workflows/deploy.yml)
+    // — no rebuilding/reinstalling the APK on every device for ordinary code changes. Safe
+    // because native Google Sign-In goes through @capacitor-firebase/authentication (the
+    // native SDK, no WebView redirect), so nothing here depends on matching Firebase's
+    // authDomain — see the reverted attempt in git history for what broke that.
+    // NOTE: currently points at the demo VPS — swap this when migrating to the client's own
+    // domain (see [[project_pending_work]] memory for the migration plan).
+    url: 'https://logicposrestaurantes.einnovacionmx.com',
   },
   android: {
     buildOptions: {
