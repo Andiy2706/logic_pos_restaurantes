@@ -71,7 +71,7 @@ interface Branch {
 interface Member {
   userId: string;
   name: string;
-  role: 'owner' | 'master_admin' | 'admin' | 'employee' | 'mesero';
+  role: 'owner' | 'admin' | 'employee' | 'mesero';
 }
 
 interface AuditViewProps {

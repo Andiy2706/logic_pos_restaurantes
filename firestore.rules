@@ -39,17 +39,17 @@ service cloud.firestore {
     }
     
     function isOwnerOrAdmin(companyId) {
-      return isMemberOfCompany(companyId) && (getMemberRole(companyId) == 'owner' || getMemberRole(companyId) == 'master_admin' || getMemberRole(companyId) == 'admin');
+      return isMemberOfCompany(companyId) && (getMemberRole(companyId) == 'owner' || getMemberRole(companyId) == 'admin');
     }
 
     function isOwner(companyId) {
       return isMemberOfCompany(companyId) && getMemberRole(companyId) == 'owner';
     }
 
-    // Role-hierarchy: only 'owner' may grant/keep 'owner' or 'master_admin'; admin/master_admin may only grant 'employee' or 'admin'
+    // Role-hierarchy: only 'owner' may grant/keep 'owner'; 'admin' may only grant 'employee', 'admin', or 'mesero'
     function isValidRoleGrant(granterRole, newRole) {
       return granterRole == 'owner'
-          || ((granterRole == 'master_admin' || granterRole == 'admin') && (newRole == 'employee' || newRole == 'admin' || newRole == 'mesero'));
+          || (granterRole == 'admin' && (newRole == 'employee' || newRole == 'admin' || newRole == 'mesero'));
     }
 
     // A member's permissions array, used for fine-grained (non-admin) write access
@@ -83,7 +83,7 @@ service cloud.firestore {
       return data.userId is string && data.userId.size() <= 128
           && data.name is string && data.name.size() <= 200
           && data.email is string && data.email.size() <= 200
-          && data.role is string && (data.role == 'owner' || data.role == 'master_admin' || data.role == 'admin' || data.role == 'employee' || data.role == 'mesero')
+          && data.role is string && (data.role == 'owner' || data.role == 'admin' || data.role == 'employee' || data.role == 'mesero')
           && (!('joinedAt' in data) || (data.joinedAt is string || data.joinedAt is timestamp));
     }
 
@@ -91,7 +91,7 @@ service cloud.firestore {
       return data.code is string && data.code.size() <= 100
           && data.companyId is string && data.companyId.size() <= 128
           && data.companyName is string && data.companyName.size() <= 200
-          && data.role is string && (data.role == 'employee' || data.role == 'admin' || data.role == 'master_admin');
+          && data.role is string && (data.role == 'employee' || data.role == 'admin');
     }
 
     function isValidProduct(data) {
@@ -268,23 +268,22 @@ service cloud.firestore {
             isValidRoleGrant(getMemberRole(companyId), incoming().role))
         );
 
-        // Updating a member: owner can do anything; admin/master_admin can only touch members
+        // Updating a member: owner can do anything; admin can only touch members
         // who are currently 'employee' or 'admin', and may only grant 'employee' or 'admin'.
         // Reassigning assignedBranchId is owner-only regardless of target role - not just a
-        // client-side restriction, admin/master_admin are blocked here too.
+        // client-side restriction, admin is blocked here too.
         allow update: if isVerifiedUser() && isMemberOfCompany(companyId) && isValidCompanyMember(incoming()) &&
           incoming().userId == memberId && existing().userId == memberId && (
             getMemberRole(companyId) == 'owner' ||
             (!incoming().diff(existing()).affectedKeys().hasAny(['assignedBranchId']) &&
               isValidRoleGrant(getMemberRole(companyId), incoming().role) &&
-              existing().role != 'owner' && existing().role != 'master_admin')
+              existing().role != 'owner')
           );
 
-        // Deleting/removing a member: owner can remove anyone; admin/master_admin only employee/admin targets
+        // Deleting/removing a member: owner can remove anyone; admin only employee/admin targets
         allow delete: if isVerifiedUser() && isMemberOfCompany(companyId) && (
           getMemberRole(companyId) == 'owner' ||
-          ((getMemberRole(companyId) == 'master_admin' || getMemberRole(companyId) == 'admin') &&
-            existing().role != 'owner' && existing().role != 'master_admin')
+          (getMemberRole(companyId) == 'admin' && existing().role != 'owner')
         );
       }
 

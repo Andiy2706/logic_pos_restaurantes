@@ -12,7 +12,7 @@
 // gets 0. For a product that already has SOME entries, any branch still missing one just
 // gets 0 (consistent with "new branch starts empty until surtido").
 //
-// Authenticates as an existing owner/admin/master_admin credential account and writes
+// Authenticates as an existing owner/admin credential account and writes
 // through the same client SDK + firestore.rules any real user would hit — no service
 // account, no rules bypass.
 //

@@ -307,7 +307,10 @@ interface Member {
   email: string;
   // 'mesero' (waiter) sits at the same privilege level as 'employee' — no elevated
   // rights — but drives the restaurant-specific floor UI (tables/orders) in Fase 2/4.
-  role: 'owner' | 'master_admin' | 'admin' | 'employee' | 'mesero';
+  // Exactly 4 roles exist: 'owner', 'admin', 'employee' (Cajero), 'mesero' — no 'master_admin'
+  // tier (removed: it was only ever reachable via ownership transfer, never a real product
+  // decision, and every cross-branch/sensitive gate that used to include it is owner-only now).
+  role: 'owner' | 'admin' | 'employee' | 'mesero';
   joinedAt?: string;
   assignedBranchId?: string;
 }
@@ -761,7 +764,7 @@ export default function App() {
   // Multi-Company States
   const [activeCompanyId, setActiveCompanyId] = useState<string | null>(null);
   const [activeCompany, setActiveCompany] = useState<Company | null>(null);
-  const [userCompanies, setUserCompanies] = useState<{ [id: string]: { id: string; name: string; role: 'owner' | 'master_admin' | 'admin' | 'employee' | 'mesero' } }>({});
+  const [userCompanies, setUserCompanies] = useState<{ [id: string]: { id: string; name: string; role: 'owner' | 'admin' | 'employee' | 'mesero' } }>({});
   const [currentUserMember, setCurrentUserMember] = useState<any | null>(null);
   const [dashboardSelectedTable, setDashboardSelectedTable] = useState<Table | null>(null);
   const [dashboardIsManagingOrder, setDashboardIsManagingOrder] = useState<boolean>(false);
@@ -825,7 +828,7 @@ export default function App() {
 
   const activeCompanyRole = user && activeCompanyId ? (userCompanies[activeCompanyId]?.role || 'employee') : 'owner';
   // Mirrors firestore.rules isOwnerOrAdmin() — refunds/voids require this client-side too
-  const isOwnerOrAdminRole = activeCompanyRole === 'owner' || activeCompanyRole === 'master_admin' || activeCompanyRole === 'admin';
+  const isOwnerOrAdminRole = activeCompanyRole === 'owner' || activeCompanyRole === 'admin';
   // Cajero's base Inventario access is view-only (no editar/eliminar/surtir/transferir) —
   // "Asignar Tareas" permissions grant these as extra capabilities on top of that baseline.
   const canEditProducts = isOwnerOrAdminRole || !!currentUserMember?.permissions?.includes('products_edit');
@@ -1280,7 +1283,10 @@ export default function App() {
     return () => unsubMemberSelf();
   }, [user, activeCompanyId, userCompanies]);
 
-  // Lock the branch selector for employees, and self-heal it for everyone else. The initial
+  // Lock the branch selector for employee/mesero/admin, and self-heal it for everyone else.
+  // Only owner may operate across branches — admin used to be able to
+  // switch too, but that let an admin hired for one sucursal see/operate another's till and
+  // inventory, so admin now gets a fixed, assigned branch just like Cajero/Mesero. The initial
   // state is the placeholder 'b1' (see useState above), which never matches a real branch —
   // ids are always generated as 'B-XXXX' (handleSaveBranch) — so a brand-new company that
   // registers its first branch and starts selling right away, without ever touching the
@@ -1290,8 +1296,8 @@ export default function App() {
   useEffect(() => {
     if (!user || !activeCompanyId) return;
 
-    // Check if the current user has branch restrictions (employee or mesero)
-    const isBranchRestricted = activeCompanyRole === 'employee' || activeCompanyRole === 'mesero';
+    // Check if the current user has branch restrictions (employee, mesero, or admin)
+    const isBranchRestricted = activeCompanyRole === 'employee' || activeCompanyRole === 'mesero' || activeCompanyRole === 'admin';
     if (isBranchRestricted && currentUserMember?.assignedBranchId) {
       if (selectedBranchId !== currentUserMember.assignedBranchId) {
         setSelectedBranchId(currentUserMember.assignedBranchId);
@@ -4331,7 +4337,7 @@ export default function App() {
               </span>
               {user && activeCompanyId ? (
                 <span className="hidden md:inline-block px-2 py-0.5 text-white font-bold text-[10px] rounded-full shadow-sm uppercase shrink-0" style={{ backgroundColor: 'var(--brand-primary)' }}>
-                  {userCompanies[activeCompanyId]?.role === 'owner' ? 'Propietario' : userCompanies[activeCompanyId]?.role === 'master_admin' ? 'Master Admin' : userCompanies[activeCompanyId]?.role === 'admin' ? 'Admin' : 'Empleado'}
+                  {userCompanies[activeCompanyId]?.role === 'owner' ? 'Propietario' : userCompanies[activeCompanyId]?.role === 'admin' ? 'Admin' : 'Empleado'}
                 </span>
               ) : (
                 <span className="hidden md:inline-block px-2 py-0.5 text-white font-bold text-[10px] rounded-full shadow-sm shrink-0" style={{ backgroundColor: 'var(--brand-primary)' }}>LOGIC POS</span>
@@ -4341,7 +4347,7 @@ export default function App() {
             {branches.length > 0 && (
               <div className="mt-1 flex items-center space-x-1 overflow-hidden shrink min-w-0">
                 <span className="text-[9px] lg:text-[10px] font-extrabold uppercase tracking-wider hidden sm:block" style={{ color: 'color-mix(in srgb, var(--brand-primary) 65%, white)' }}>Sucursal:</span>
-                {activeCompanyRole === 'employee' ? (
+                {(activeCompanyRole === 'employee' || activeCompanyRole === 'admin') ? (
                   <span className="border rounded px-1.5 lg:px-2 py-0.5 text-[9px] lg:text-[10px] font-bold truncate text-white" style={{ backgroundColor: 'color-mix(in srgb, var(--brand-dark) 80%, black)', borderColor: 'color-mix(in srgb, var(--brand-primary) 30%, transparent)' }}>
                     <MapPin className="w-2.5 h-2.5 inline mr-0.5" />{branches.find(b => b.id === selectedBranchId)?.name || 'Sucursal Principal'}
                   </span>
@@ -4397,10 +4403,6 @@ export default function App() {
                   colorClass = 'text-amber-500';
                   Icon = ShieldCheck;
                   label = 'Dueño';
-                } else if (role === 'master_admin') {
-                  colorClass = 'text-purple-400';
-                  Icon = ShieldCheck;
-                  label = 'Master Admin';
                 } else if (role === 'admin') {
                   colorClass = 'text-blue-400';
                   Icon = ShieldCheck;
@@ -4428,7 +4430,7 @@ export default function App() {
               })()}
             </div>
             <div className="flex space-x-1 lg:space-x-1.5 flex-shrink-0">
-              {(!currentUserMember || currentUserMember?.role === 'owner' || currentUserMember?.role === 'master_admin') && (
+              {(!currentUserMember || currentUserMember?.role === 'owner') && (
                 <button
                   onClick={() => { localStorage.removeItem(`logic_active_company_${user.uid}`); setActiveCompanyId(null); }}
                   className="text-[9px] lg:text-[10px] text-white font-bold px-2 lg:px-2.5 py-1 rounded-lg cursor-pointer transition select-none border"
@@ -4556,8 +4558,21 @@ export default function App() {
             </button>
           ))}
 
+          {/* Sucursales: owner-only — switching/creating/editing branches used to be open to
+              admin too, but that let an admin hired for one branch operate another's till and
+              inventory. Deliberately its own gate (not the `!== 'employee'` block below), same
+              reasoning as the Auditoría gate further down. */}
+          {activeCompanyRole === 'owner' && (
+            <button id="nav-branches"
+              onClick={() => { setActiveTab('branches'); setIsMobileMenuOpen(false); }}
+              className={activeTab === 'branches' ? navActiveClass : navInactiveClass}
+              style={activeTab === 'branches' ? navActiveStyle : {}}
+            >
+              <Store className="w-5 h-5" /><span className="mt-1 md:mt-0">Sucursales</span>
+            </button>
+          )}
+
           {activeCompanyRole !== 'employee' && [
-            { id: 'branches',   label: 'Sucursales',          icon: <Store className="w-5 h-5" /> },
             { id: 'suppliers',  label: 'Proveedores',         icon: <Truck className="w-5 h-5" /> },
             { id: 'invoicing',  label: 'Facturación',         icon: <FileText className="w-5 h-5" /> },
             { id: 'analytics',  label: 'Estadísticas',        icon: <BarChart3 className="w-5 h-5" /> },
@@ -4571,9 +4586,11 @@ export default function App() {
             </button>
           ))}
 
-          {/* Auditoría: owner/admin/master_admin only — deliberately its own gate (not the
-              `!== 'employee'` block above), since that check alone would also admit 'mesero'. */}
-          {isOwnerOrAdminRole && (
+          {/* Auditoría: owner-only — it aggregates data across every branch, and admin is now
+              scoped to a single assigned branch (see the Sucursales gate above), so admin loses
+              this too. Deliberately its own gate, not `isOwnerOrAdminRole` (which still grants
+              admin things like editing products/transferring stock — unrelated to this). */}
+          {activeCompanyRole === 'owner' && (
             <button id="nav-audit"
               onClick={() => { setActiveTab('audit'); setIsMobileMenuOpen(false); }}
               className={activeTab === 'audit' ? navActiveClass : navInactiveClass}
@@ -5050,7 +5067,7 @@ export default function App() {
                   ) : (
                     <div className="flex items-center gap-2 mt-2">
                       <p className="text-xs text-white/60">Monto de apertura: {formatMXN(cashRegister.initialCash)}</p>
-                      {(activeCompanyRole === 'owner' || activeCompanyRole === 'master_admin') && (
+                      {activeCompanyRole === 'owner' && (
                         <button
                           onClick={() => {
                             setEditInitialCashPrompt(true);
@@ -6048,7 +6065,7 @@ export default function App() {
             </div>
           )}
 
-          {/* SCREEN: AUDITORÍA (owner/admin/master_admin only — gated at the nav level above) */}
+          {/* SCREEN: AUDITORÍA (owner-only — gated at the nav level above) */}
           {activeTab === 'audit' && (
             <AuditView
               companyName={branding.displayName || userCompanies[activeCompanyId || '']?.name || 'Mi Comercio'}
@@ -6835,12 +6852,12 @@ export default function App() {
                     className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 outline-none focus:border-teal-500 font-bold text-slate-700 cursor-pointer"
                   >
                     <option value="">-- Selecciona un Gerente --</option>
-                    {branchForm.manager && !members.filter(m => m.role === 'owner' || m.role === 'master_admin' || m.role === 'admin').some(m => m.name === branchForm.manager) && (
+                    {branchForm.manager && !members.filter(m => m.role === 'owner' || m.role === 'admin').some(m => m.name === branchForm.manager) && (
                       <option value={branchForm.manager}>{branchForm.manager}</option>
                     )}
-                    {members.filter(m => m.role === 'owner' || m.role === 'master_admin' || m.role === 'admin').map(member => (
+                    {members.filter(m => m.role === 'owner' || m.role === 'admin').map(member => (
                       <option key={member.userId} value={member.name}>
-                        {member.name} ({member.role === 'owner' ? 'Propietario' : member.role === 'master_admin' ? 'Master Admin' : 'Administrador'})
+                        {member.name} ({member.role === 'owner' ? 'Propietario' : 'Administrador'})
                       </option>
                     ))}
                   </select>

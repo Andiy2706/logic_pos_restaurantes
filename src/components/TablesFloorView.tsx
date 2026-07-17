@@ -354,7 +354,7 @@ export default function TablesFloorView({
         </div>
 
         {/* Action button — creating tables is salon management, reserved for owner/admin */}
-        {(currentUserMember?.role === 'owner' || currentUserMember?.role === 'master_admin' || currentUserMember?.role === 'admin') && (
+        {(currentUserMember?.role === 'owner' || currentUserMember?.role === 'admin') && (
           <button
             type="button"
             onClick={() => setIsAddModalOpen(true)}
@@ -440,7 +440,7 @@ export default function TablesFloorView({
               {zone}
             </button>
           ))}
-          {(currentUserMember?.role === 'owner' || currentUserMember?.role === 'master_admin' || currentUserMember?.role === 'admin') && (
+          {(currentUserMember?.role === 'owner' || currentUserMember?.role === 'admin') && (
             <button
               onClick={() => setIsZonesModalOpen(true)}
               title="Editar zonas del salón"

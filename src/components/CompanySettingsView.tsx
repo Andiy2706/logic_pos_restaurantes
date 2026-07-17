@@ -43,7 +43,7 @@ interface Member {
   userId: string;
   name: string;
   email: string;
-  role: 'owner' | 'master_admin' | 'admin' | 'employee' | 'mesero';
+  role: 'owner' | 'admin' | 'employee' | 'mesero';
   joinedAt?: string;
   assignedBranchId?: string;
   customRoleName?: string;
@@ -88,9 +88,9 @@ interface BluetoothPrinterDevice {
 interface CompanySettingsViewProps {
   companyId: string;
   companyName: string;
-  currentUserRole: 'owner' | 'master_admin' | 'admin' | 'employee' | 'mesero';
+  currentUserRole: 'owner' | 'admin' | 'employee' | 'mesero';
   currentUserId: string;
-  userAvailableCompanies: { [id: string]: { id: string; name: string; role: 'owner' | 'master_admin' | 'admin' | 'employee' | 'mesero' } };
+  userAvailableCompanies: { [id: string]: { id: string; name: string; role: 'owner' | 'admin' | 'employee' | 'mesero' } };
   onSwitchCompany: (id: string) => void;
   onLogoutCompany: () => void;
   onCreateCompany?: (name: string) => Promise<void>;
@@ -218,7 +218,7 @@ export default function CompanySettingsView({
   const [isRoleModalOpen, setIsRoleModalOpen] = useState(false);
   const [selectedRoleMember, setSelectedRoleMember] = useState<Member | null>(null);
   const [editedCustomRoleName, setEditedCustomRoleName] = useState('');
-  const [editedRoleType, setEditedRoleType] = useState<'master_admin' | 'admin' | 'employee'>('employee');
+  const [editedRoleType, setEditedRoleType] = useState<'admin' | 'employee'>('employee');
   const [editedPermissions, setEditedPermissions] = useState<string[]>([]);
 
   // States for Programmatic Credential Creation (No Google Required)
@@ -226,7 +226,7 @@ export default function CompanySettingsView({
   const [credName, setCredName] = useState('');
   const [credUsername, setCredUsername] = useState('');
   const [credPassword, setCredPassword] = useState('');
-  const [credRole, setCredRole] = useState<'master_admin' | 'admin' | 'employee' | 'mesero'>('employee');
+  const [credRole, setCredRole] = useState<'admin' | 'employee' | 'mesero'>('employee');
   const [credBranchId, setCredBranchId] = useState('');
   const [isCreatingCred, setIsCreatingCred] = useState(false);
   const [createdCredentialsShow, setCreatedCredentialsShow] = useState<{ companyId: string, name: string, username: string, password: string } | null>(null);
@@ -729,7 +729,7 @@ export default function CompanySettingsView({
 
   const handleSaveRoleAndPermissions = async () => {
     if (!selectedRoleMember) return;
-    if (currentUserRole !== 'owner' && currentUserRole !== 'master_admin' && currentUserRole !== 'admin') {
+    if (currentUserRole !== 'owner' && currentUserRole !== 'admin') {
       alert("No tienes permisos suficientes para asignar tareas.");
       return;
     }
@@ -925,9 +925,9 @@ export default function CompanySettingsView({
     setTimeout(() => setCopiedLink(false), 2000);
   };
 
-  const handleChangeMemberRole = async (memberUserId: string, memberName: string, newRole: 'master_admin' | 'admin' | 'employee' | 'mesero') => {
-    if (currentUserRole !== 'owner' && currentUserRole !== 'master_admin') {
-      alert("No tienes permisos suficientes para editar roles. Solo el Dueño o Master Admin pueden modificar roles.");
+  const handleChangeMemberRole = async (memberUserId: string, memberName: string, newRole: 'admin' | 'employee' | 'mesero') => {
+    if (currentUserRole !== 'owner') {
+      alert("No tienes permisos suficientes para editar roles. Solo el Dueño puede modificar roles.");
       return;
     }
     
@@ -943,7 +943,7 @@ export default function CompanySettingsView({
       await updateDoc(doc(db, 'companies', companyId, 'members', memberUserId), {
         role: newRole
       });
-      const roleLabel = newRole === 'master_admin' ? 'Master Admin' : newRole === 'admin' ? 'Administrador' : newRole === 'mesero' ? 'Mesero' : 'Empleado';
+      const roleLabel = newRole === 'admin' ? 'Administrador' : newRole === 'mesero' ? 'Mesero' : 'Empleado';
       alert(`Rol de ${memberName} actualizado exitosamente a ${roleLabel}.`);
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, `companies/${companyId}/members/${memberUserId}`);
@@ -987,7 +987,7 @@ export default function CompanySettingsView({
     }
 
     const firstConfirm = confirm(
-      `¡ALERTA DE SEGURIDAD MÁXIMA!\n\n¿Estás seguro de que deseas transferir la propiedad del comercio "${companyName}" a ${targetMember.name} (${targetMember.email})?\n\nAl hacer esto:\n- Perderás el control absoluto de la empresa.\n- Pasarás a ser un Administrador Master.\n- No podrás revertir esta acción ni eliminar este comercio.\n\n¿Deseas continuar?`
+      `¡ALERTA DE SEGURIDAD MÁXIMA!\n\n¿Estás seguro de que deseas transferir la propiedad del comercio "${companyName}" a ${targetMember.name} (${targetMember.email})?\n\nAl hacer esto:\n- Perderás el control absoluto de la empresa.\n- Pasarás a ser un Administrador.\n- No podrás revertir esta acción ni eliminar este comercio.\n\n¿Deseas continuar?`
     );
     if (!firstConfirm) return;
 
@@ -1010,8 +1010,9 @@ export default function CompanySettingsView({
       // Target member role becomes owner
       batch.update(targetMemberRef, { role: 'owner' });
       
-      // Current user role becomes master_admin
-      batch.update(currentMemberRef, { role: 'master_admin' });
+      // Current user role becomes admin — the highest tier below owner now that
+      // master_admin no longer exists as a role.
+      batch.update(currentMemberRef, { role: 'admin' });
 
       await batch.commit();
 
@@ -1202,7 +1203,7 @@ export default function CompanySettingsView({
             Ajustes
           </button>
 
-          {(currentUserRole === 'owner' || currentUserRole === 'master_admin') && (
+          {currentUserRole === 'owner' && (
             <button
               onClick={() => setActiveSubTab('branding')}
               className={`shrink-0 px-3 py-2.5 text-xs font-bold rounded-xl transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
@@ -1216,7 +1217,7 @@ export default function CompanySettingsView({
             </button>
           )}
 
-          {(currentUserRole === 'owner' || currentUserRole === 'master_admin') && (
+          {currentUserRole === 'owner' && (
             <button
               onClick={() => setActiveSubTab('print')}
               className={`shrink-0 px-3 py-2.5 text-xs font-bold rounded-xl transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
@@ -1353,9 +1354,9 @@ export default function CompanySettingsView({
                           <span className="text-[11px] font-black uppercase py-1.5 px-3 rounded-full border bg-indigo-50 border-indigo-200 text-indigo-700 shrink-0 shadow-sm flex items-center gap-1">
                             <Crown className="w-3 h-3" />Dueño
                           </span>
-                        ) : (currentUserRole === 'owner' || currentUserRole === 'master_admin') ? (
+                        ) : currentUserRole === 'owner' ? (
                           <div className="flex flex-wrap items-center gap-2">
-                            {/* Role select dropdown (interactive for owner/master_admin) */}
+                            {/* Role select dropdown (interactive for owner only) */}
                             <select
                               value={member.role}
                               disabled={isUpdating}
@@ -1371,7 +1372,6 @@ export default function CompanySettingsView({
                               <option value="employee" className="bg-white text-slate-700">Cajero</option>
                               <option value="mesero" className="bg-white text-slate-700">Mesero</option>
                               <option value="admin" className="bg-white text-slate-700">Administrador</option>
-                              {member.role === 'master_admin' && <option value="master_admin" className="bg-white text-slate-700">Master Admin</option>}
                             </select>
 
                             {/* Assign extra tasks */}
@@ -1398,22 +1398,20 @@ export default function CompanySettingsView({
                         ) : (
                           <div className="flex flex-wrap items-center gap-1.5">
                             <span className={`text-[11px] font-black uppercase py-1.5 px-3 rounded-full border shadow-sm shrink-0 ${
-                              member.role === 'master_admin'
-                                ? 'bg-purple-50 border-purple-200 text-purple-700'
-                                : member.role === 'admin'
+                              member.role === 'admin'
                                 ? 'bg-emerald-50 border-emerald-300 text-emerald-700'
                                 : member.role === 'mesero'
                                 ? 'bg-amber-50 border-amber-300 text-amber-700'
                                 : 'bg-slate-50 border-slate-300 text-slate-700'
                             } flex items-center gap-1`}>
-                              {member.role === 'master_admin' ? <Shield className="w-3 h-3" /> : member.role === 'admin' ? <Shield className="w-3 h-3" /> : member.role === 'mesero' ? <Utensils className="w-3 h-3" /> : <Briefcase className="w-3 h-3" />}
-                              {member.role === 'master_admin' ? 'Master Admin' : member.role === 'admin' ? 'Administrador' : member.role === 'mesero' ? 'Mesero' : 'Empleado'}
+                              {member.role === 'admin' ? <Shield className="w-3 h-3" /> : member.role === 'mesero' ? <Utensils className="w-3 h-3" /> : <Briefcase className="w-3 h-3" />}
+                              {member.role === 'admin' ? 'Administrador' : member.role === 'mesero' ? 'Mesero' : 'Empleado'}
                             </span>
                           </div>
                         )}
                         
                         {/* Remove Employee button */}
-                        {member.role !== 'owner' && (currentUserRole === 'owner' || currentUserRole === 'master_admin' || (currentUserRole === 'admin' && (member.role === 'employee' || member.role === 'mesero'))) && (
+                        {member.role !== 'owner' && (currentUserRole === 'owner' || (currentUserRole === 'admin' && (member.role === 'employee' || member.role === 'mesero'))) && (
                           deleteConfirmMemberId === member.userId ? (
                             <button
                               type="button"
@@ -2147,13 +2145,13 @@ export default function CompanySettingsView({
                 </p>
               </div>
 
-              {currentUserRole !== 'owner' && currentUserRole !== 'master_admin' ? (
+              {currentUserRole !== 'owner' ? (
                 <div className="bg-red-50 border border-red-200/50 p-4 rounded-xl flex items-start space-x-3">
                   <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
                   <div>
                     <h5 className="font-extrabold text-xs text-red-800">Acceso Restringido</h5>
                     <p className="text-[11px] text-red-600">
-                      Solo el Propietario o Master Admin pueden gestionar los respaldos de la nube.
+                      Solo el Propietario puede gestionar los respaldos de la nube.
                     </p>
                   </div>
                 </div>
@@ -2467,7 +2465,7 @@ export default function CompanySettingsView({
                         <label className="text-slate-600 font-bold block">Rol *</label>
                         <select
                           value={credRole}
-                          onChange={(e) => setCredRole(e.target.value as 'master_admin' | 'admin' | 'employee' | 'mesero')}
+                          onChange={(e) => setCredRole(e.target.value as 'admin' | 'employee' | 'mesero')}
                           className="w-full bg-white border border-slate-200 rounded-lg p-2.5 outline-none focus:border-indigo-505 font-bold text-slate-705 cursor-pointer"
                         >
                           <option value="employee">Cajero / Empleado</option>
