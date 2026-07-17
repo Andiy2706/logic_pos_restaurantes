@@ -1330,11 +1330,22 @@ export default function App() {
       setBranches([]);
       setSuppliers([]);
       setSales([]);
+      setStockMovements([]);
+      setTables([]);
+      setOrders([]);
+      setMembers([]);
+      setAllCashRegisters({});
+      setPrintConfig(DEFAULT_PRINT_CONFIG);
       return;
     }
 
     if (!activeCompanyId) {
-      // Clean display till company is picked
+      // Clean display till company is picked — every per-company collection needs to be
+      // reset here, not just the ones a screen happens to be showing right now: this branch
+      // runs on every "Empresas" switch (activeCompanyId goes through null in between), and
+      // anything left out lingers as the PREVIOUS company's data until the new company's own
+      // listener happens to overwrite it — e.g. a freshly created company briefly "having" a
+      // table that actually belongs to the company you just switched away from.
       setActiveCompany(null);
       setProducts([]);
       setCustomers([]);
@@ -1343,6 +1354,11 @@ export default function App() {
       setSales([]);
       setStockMovements([]);
       setBranding({});
+      setTables([]);
+      setOrders([]);
+      setMembers([]);
+      setAllCashRegisters({});
+      setPrintConfig(DEFAULT_PRINT_CONFIG);
       return;
     }
 
